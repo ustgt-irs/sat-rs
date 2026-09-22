@@ -10,6 +10,7 @@ pub mod acs;
 pub mod ccsds;
 pub mod control;
 pub mod pcdu;
+pub mod tmtc;
 
 #[derive(
     Debug,

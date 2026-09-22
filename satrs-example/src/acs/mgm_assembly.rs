@@ -44,6 +44,7 @@ pub struct Assembly {
     mgm_modes: [MgmInfo; 2],
     parent_queues: ParentQueueHelper,
     pub(crate) children_queues: ChildrenQueueHelper,
+    event_tx: mpsc::SyncSender<types::acs::mgm_assembly::Event>,
 }
 
 impl Assembly {
@@ -54,6 +55,7 @@ impl Assembly {
         children_queues: ChildrenQueueHelper,
         tmtc_queues: TmtcQueues,
         mode_timeout: Duration,
+        event_tx: mpsc::SyncSender<types::acs::mgm_assembly::Event>,
     ) -> Self {
         Self {
             mode_helper: ModeHelper::new(Mode::NoModeKeeping, mode_timeout),
@@ -62,6 +64,7 @@ impl Assembly {
             mgm_modes: [MgmInfo::default(); 2],
             parent_queues,
             children_queues,
+            event_tx,
         }
     }
 
@@ -295,12 +298,19 @@ impl Assembly {
     }
 
     fn announce_mode(&self) {
-        // TODO: Event?
         log::info!(
             "{:?} announcing mode: {:?}",
             Self::ID,
             self.mode_helper.current
         );
+        if let Err(e) = self
+            .event_tx
+            .send(types::acs::mgm_assembly::Event::ModeChanged(
+                self.mode_helper.current,
+            ))
+        {
+            log::warn!("{:?}: failed to send mode changed event: {}", Self::ID, e);
+        }
     }
 
     #[inline]
@@ -336,6 +346,7 @@ mod tests {
         mgm_report_tx: [mpsc::SyncSender<types::acs::mgm::response::ModeResponse>; 2],
         tc_tx: mpsc::SyncSender<CcsdsTcPacketOwned>,
         tm_rx: mpsc::Receiver<CcsdsTmPacketOwned>,
+        event_rx: mpsc::Receiver<mgm_assembly::Event>,
         assembly: Assembly,
     }
 
@@ -351,6 +362,7 @@ mod tests {
 
             let (tc_tx, tc_rx) = mpsc::sync_channel(5);
             let (tm_tx, tm_rx) = mpsc::sync_channel(5);
+            let (event_tx, event_rx) = mpsc::sync_channel(5);
 
             Self {
                 subsystem_req_tx,
@@ -359,6 +371,7 @@ mod tests {
                 mgm_report_tx: [mgm_0_mode_report_tx, mgm_1_mode_report_tx],
                 tc_tx,
                 tm_rx,
+                event_rx,
                 assembly: Assembly::new(
                     ParentQueueHelper {
                         request_rx: subsystem_req_rx,
@@ -370,6 +383,7 @@ mod tests {
                     },
                     TmtcQueues { tc_rx, tm_tx },
                     Duration::from_millis(20),
+                    event_tx,
                 ),
             }
         }
@@ -450,6 +464,12 @@ mod tests {
         assert_eq!(response.tm_header.message_type, MessageType::Verification);
         let response: response::Response = postcard::from_bytes(&response.payload).unwrap();
         assert_eq!(response, response::Response::Ok);
+
+        let event = tb.event_rx.try_recv().expect("expected mode changed event");
+        assert!(matches!(
+            event,
+            mgm_assembly::Event::ModeChanged(Mode::Device(DeviceMode::Normal))
+        ));
     }
 
     #[test]

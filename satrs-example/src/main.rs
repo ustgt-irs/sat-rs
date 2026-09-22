@@ -101,15 +101,23 @@ fn main() {
     let (pcdu_handler_mode_tx, _pcdu_handler_mode_rx) = mpsc::sync_channel(5);
 
     let (event_ctrl_tx, event_ctrl_rx) = mpsc::sync_channel(10);
+    let (mgm_event_tx, mgm_event_rx) = mpsc::sync_channel(10);
+    let (mgm_assembly_event_tx, mgm_assembly_event_rx) = mpsc::sync_channel(10);
+    let (pcdu_event_tx, pcdu_event_rx) = mpsc::sync_channel(10);
+    let (tc_source_event_tx, tc_source_event_rx) = mpsc::sync_channel(10);
     let mut event_manager = EventManager {
         ctrl_rx: event_ctrl_rx,
+        mgm_rx: mgm_event_rx,
+        mgm_assembly_rx: mgm_assembly_event_rx,
+        pcdu_rx: pcdu_event_rx,
+        tc_source_rx: tc_source_event_rx,
         tm_tx: tm_sink_tx.clone(),
     };
 
     let mut controller = Controller::new(controller_tc_rx, tm_sink_tx.clone(), event_ctrl_tx);
 
     let ccsds_distributor = CcsdsDistributor::default();
-    let mut tc_source = TcSourceTask::new(tc_source_rx, ccsds_distributor);
+    let mut tc_source = TcSourceTask::new(tc_source_rx, ccsds_distributor, tc_source_event_tx);
     tc_source.add_target(ComponentId::EpsPcdu, pcdu_handler_tc_tx);
     tc_source.add_target(ComponentId::Controller, controller_tc_tx);
     tc_source.add_target(ComponentId::AcsMgm0, mgm_0_handler_tc_tx);
@@ -199,6 +207,7 @@ fn main() {
         },
         Duration::from_millis(1000),
         health_table.clone(),
+        mgm_event_tx.clone(),
     );
     let mut mgm_1_handler = mgm::MgmHandlerLis3Mdl::new(
         mgm::MgmId::_1,
@@ -215,6 +224,7 @@ fn main() {
         },
         Duration::from_millis(1000),
         health_table.clone(),
+        mgm_event_tx,
     );
     let mut mgm_assembly = mgm_assembly::Assembly::new(
         mgm_assembly::ParentQueueHelper {
@@ -230,6 +240,7 @@ fn main() {
             tm_tx: tm_sink_tx.clone(),
         },
         Duration::from_millis(2000),
+        mgm_assembly_event_tx,
     );
 
     let mut acs_controller = ctrl::Controller::new(ctrl::ModeLeafHelper {
@@ -275,6 +286,7 @@ fn main() {
         pcdu_serial_interface,
         shared_switch_set,
         DeviceMode::Normal,
+        pcdu_event_tx,
     );
 
     // The PCDU is a critical component which should be in normal mode immediately.

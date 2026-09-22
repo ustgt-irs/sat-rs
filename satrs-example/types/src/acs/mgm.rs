@@ -58,6 +58,21 @@ pub struct SensorData {
     pub z: f32,
 }
 
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug)]
+pub enum Event {
+    /// The SPI fault counter exceeded its threshold, the component was marked faulty and
+    /// commanded off.
+    SpiFaultThresholdExceeded,
+    /// A commanded or autonomous mode transition completed.
+    ModeChanged(crate::DeviceMode),
+}
+
+impl crate::Message for Event {
+    fn message_type(&self) -> crate::MessageType {
+        crate::MessageType::Event
+    }
+}
+
 pub mod response {
     use crate::{DeviceMode, Message, acs::mgm::SensorData};
 
