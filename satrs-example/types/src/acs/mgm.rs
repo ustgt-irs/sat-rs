@@ -58,7 +58,9 @@ pub struct SensorData {
     pub z: f32,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug)]
+#[derive(strum::EnumDiscriminants, serde::Serialize, serde::Deserialize, Clone, Copy, Debug)]
+#[strum_discriminants(derive(num_enum::IntoPrimitive))]
+#[repr(u16)]
 pub enum Event {
     /// The SPI fault counter exceeded its threshold, the component was marked faulty and
     /// commanded off.
@@ -70,6 +72,12 @@ pub enum Event {
 impl crate::Message for Event {
     fn message_type(&self) -> crate::MessageType {
         crate::MessageType::Event
+    }
+}
+
+impl crate::EventId for Event {
+    fn event_id(&self) -> u16 {
+        EventDiscriminants::from(self).into()
     }
 }
 

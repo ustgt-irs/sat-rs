@@ -46,7 +46,11 @@ impl Controller {
                                 control::request::Request::Ping => self
                                     .send_telemetry(Some(tc_id), control::response::Response::Ok),
                                 control::request::Request::TestEvent => {
-                                    self.event_ctrl_tx.send(control::Event::TestEvent).unwrap()
+                                    self.event_ctrl_tx.send(control::Event::TestEvent).unwrap();
+                                    self.send_telemetry(
+                                        Some(tc_id),
+                                        control::response::Response::Ok,
+                                    );
                                 }
                             }
                         }

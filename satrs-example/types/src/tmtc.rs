@@ -1,6 +1,8 @@
-use crate::{ComponentId, Message};
+use crate::{ComponentId, EventId, Message};
 
-#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug)]
+#[derive(strum::EnumDiscriminants, serde::Serialize, serde::Deserialize, Clone, Copy, Debug)]
+#[strum_discriminants(derive(num_enum::IntoPrimitive))]
+#[repr(u16)]
 pub enum Event {
     /// A received CCSDS packet failed CRC or basic format validation.
     InvalidTcPacket,
@@ -13,5 +15,11 @@ pub enum Event {
 impl Message for Event {
     fn message_type(&self) -> crate::MessageType {
         crate::MessageType::Event
+    }
+}
+
+impl EventId for Event {
+    fn event_id(&self) -> u16 {
+        EventDiscriminants::from(self).into()
     }
 }

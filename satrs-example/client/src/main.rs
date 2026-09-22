@@ -34,6 +34,58 @@ enum Commands {
     Mgm1(MgmArgs),
     MgmAssy(MgmAssemblyArgs),
     AcsSubsystem(SubsystemArgs),
+    EventManager(EventManagerArgs),
+}
+
+#[derive(clap::Parser)]
+struct EventManagerArgs {
+    #[command(subcommand)]
+    action: EventFilterAction,
+}
+
+#[derive(clap::Subcommand)]
+enum EventFilterAction {
+    /// Enable event TM generation.
+    Enable(EventFilterArgs),
+    /// Disable event TM generation.
+    Disable(EventFilterArgs),
+}
+
+#[derive(clap::Args)]
+struct EventFilterArgs {
+    #[arg(value_enum)]
+    component: EventSenderSelect,
+    /// Raw event ID. Without it, the filter applies to all events of the component.
+    #[arg(short, long)]
+    event_id: Option<u16>,
+}
+
+/// Components which emit events.
+#[derive(Debug, PartialEq, Eq, Clone, Copy, clap::ValueEnum)]
+enum EventSenderSelect {
+    Controller,
+    Mgm0,
+    Mgm1,
+    MgmAssy,
+    Pcdu,
+    UdpServer,
+    TcpServer,
+    Ground,
+}
+
+impl From<EventSenderSelect> for types::ComponentId {
+    fn from(sender: EventSenderSelect) -> Self {
+        match sender {
+            EventSenderSelect::Controller => types::ComponentId::Controller,
+            EventSenderSelect::Mgm0 => types::ComponentId::AcsMgm0,
+            EventSenderSelect::Mgm1 => types::ComponentId::AcsMgm1,
+            EventSenderSelect::MgmAssy => types::ComponentId::AcsMgmAssembly,
+            EventSenderSelect::Pcdu => types::ComponentId::EpsPcdu,
+            EventSenderSelect::UdpServer => types::ComponentId::UdpServer,
+            EventSenderSelect::TcpServer => types::ComponentId::TcpServer,
+            EventSenderSelect::Ground => types::ComponentId::Ground,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, clap::ValueEnum)]
@@ -216,6 +268,39 @@ fn handle_mgm_command(
     Ok(())
 }
 
+fn handle_event_manager_command(client: &UdpSocket, addr: SocketAddr, args: EventManagerArgs) {
+    use types::event_manager::request::Request;
+
+    let request = match args.action {
+        EventFilterAction::Enable(filter) => match filter.event_id {
+            Some(event_id) => Request::EnableEvent {
+                sender_id: filter.component.into(),
+                event_id,
+            },
+            None => Request::EnableComponent(filter.component.into()),
+        },
+        EventFilterAction::Disable(filter) => match filter.event_id {
+            Some(event_id) => Request::DisableEvent {
+                sender_id: filter.component.into(),
+                event_id,
+            },
+            None => Request::DisableComponent(filter.component.into()),
+        },
+    };
+    let request_packet = types::ccsds::CcsdsTcPacketOwned::new_with_request(
+        SpacePacketHeader::new_from_apid(u11::new(Apid::Tmtc as u16)),
+        TcHeader::new(types::ComponentId::EventManager, MessageType::Event),
+        request,
+    );
+    let sent_tc_id = CcsdsPacketIdAndPsc::new_from_ccsds_packet(&request_packet.sp_header);
+    log::info!(
+        "sending event manager request {:?} with TC ID {:#010x}",
+        request,
+        sent_tc_id.raw()
+    );
+    client.send_to(&request_packet.to_vec(), addr).unwrap();
+}
+
 fn setup_logger(level: log::LevelFilter) -> Result<(), fern::InitError> {
     fern::Dispatch::new()
         .format(|out, message, record| {
@@ -366,6 +451,7 @@ fn main() -> anyhow::Result<()> {
                     client.send_to(&request_packet, addr).unwrap();
                 }
             }
+            Commands::EventManager(args) => handle_event_manager_command(&client, addr, args),
         }
     }
 
@@ -508,7 +594,14 @@ fn handle_raw_tm_packet(data: &[u8]) -> anyhow::Result<()> {
                 types::ComponentId::UdpServer => todo!(),
                 types::ComponentId::TcpServer => todo!(),
                 types::ComponentId::Ground => todo!(),
-                types::ComponentId::EventManager => {}
+                types::ComponentId::EventManager => {
+                    let response =
+                        postcard::from_bytes::<types::event_manager::response::Response>(remainder);
+                    log::info!(
+                        "Received response from event manager: {:?}",
+                        response.unwrap()
+                    );
+                }
                 types::ComponentId::AcsController => todo!(),
                 types::ComponentId::AcsMgt => todo!(),
             }

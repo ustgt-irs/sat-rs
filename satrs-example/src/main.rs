@@ -81,6 +81,7 @@ fn main() {
     let (acs_subsystem_tc_tx, acs_subsystem_tc_rx) = mpsc::sync_channel(10);
     let (pcdu_handler_tc_tx, pcdu_handler_tc_rx) = mpsc::sync_channel(30);
     let (controller_tc_tx, controller_tc_rx) = mpsc::sync_channel(10);
+    let (event_manager_tc_tx, event_manager_tc_rx) = mpsc::sync_channel(10);
 
     let (mgt_request_tx, mgt_request_rx) = mpsc::sync_channel(5);
     let (mgt_report_tx, mgt_report_rx) = mpsc::sync_channel(5);
@@ -105,14 +106,15 @@ fn main() {
     let (mgm_assembly_event_tx, mgm_assembly_event_rx) = mpsc::sync_channel(10);
     let (pcdu_event_tx, pcdu_event_rx) = mpsc::sync_channel(10);
     let (tc_source_event_tx, tc_source_event_rx) = mpsc::sync_channel(10);
-    let mut event_manager = EventManager {
-        ctrl_rx: event_ctrl_rx,
-        mgm_rx: mgm_event_rx,
-        mgm_assembly_rx: mgm_assembly_event_rx,
-        pcdu_rx: pcdu_event_rx,
-        tc_source_rx: tc_source_event_rx,
-        tm_tx: tm_sink_tx.clone(),
-    };
+    let mut event_manager = EventManager::new(
+        event_manager_tc_rx,
+        event_ctrl_rx,
+        mgm_event_rx,
+        mgm_assembly_event_rx,
+        pcdu_event_rx,
+        tc_source_event_rx,
+        tm_sink_tx.clone(),
+    );
 
     let mut controller = Controller::new(controller_tc_rx, tm_sink_tx.clone(), event_ctrl_tx);
 
@@ -124,6 +126,7 @@ fn main() {
     tc_source.add_target(ComponentId::AcsMgm1, mgm_1_handler_tc_tx);
     tc_source.add_target(ComponentId::AcsMgmAssembly, mgm_assembly_tc_tx);
     tc_source.add_target(ComponentId::AcsSubsystem, acs_subsystem_tc_tx);
+    tc_source.add_target(ComponentId::EventManager, event_manager_tc_tx);
 
     let tc_sender = TmTcSender::Normal(tc_source_tx.clone());
     let udp_tm_handler = UdpTmHandlerWithChannel {
