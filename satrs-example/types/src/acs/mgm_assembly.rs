@@ -136,3 +136,15 @@ pub mod response {
         }
     }
 }
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug)]
+pub enum Event {
+    /// A commanded or autonomous mode transition completed.
+    ModeChanged(Mode),
+}
+
+impl crate::Message for Event {
+    fn message_type(&self) -> crate::MessageType {
+        crate::MessageType::Event
+    }
+}

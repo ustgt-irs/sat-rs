@@ -56,6 +56,18 @@ pub enum SwitchStateBinary {
     On = 1,
 }
 
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug)]
+pub enum Event {
+    /// Sending a request to the PCDU over the serial/simulator link failed.
+    SerialCommError,
+}
+
+impl crate::Message for Event {
+    fn message_type(&self) -> crate::MessageType {
+        crate::MessageType::Event
+    }
+}
+
 pub type SwitchMapBinary = HashMap<SwitchId, SwitchStateBinary>;
 
 pub struct SwitchMapBinaryWrapper(pub SwitchMapBinary);

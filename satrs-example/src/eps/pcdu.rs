@@ -271,6 +271,7 @@ pub struct PcduHandler<ComInterface: SerialInterface> {
     shared_switch_map: Arc<Mutex<SwitchSet>>,
     mode: DeviceMode,
     stamp_helper: TimestampHelper,
+    event_tx: mpsc::SyncSender<pcdu::Event>,
 }
 
 impl<ComInterface: SerialInterface> PcduHandler<ComInterface> {
@@ -281,6 +282,7 @@ impl<ComInterface: SerialInterface> PcduHandler<ComInterface> {
         com_interface: ComInterface,
         shared_switch_map: Arc<Mutex<SwitchSet>>,
         init_mode: DeviceMode,
+        event_tx: mpsc::SyncSender<pcdu::Event>,
     ) -> Self {
         Self {
             dev_str: "PCDU",
@@ -292,6 +294,7 @@ impl<ComInterface: SerialInterface> PcduHandler<ComInterface> {
             stamp_helper: TimestampHelper::default(),
             // Start in normal mode by default. Assume that the PCDU itself is on by default.
             mode: init_mode,
+            event_tx,
         }
     }
 
@@ -437,6 +440,9 @@ impl<ComInterface: SerialInterface> PcduHandler<ComInterface> {
         let pcdu_req_ser = serde_json::to_string(&pcdu_req).unwrap();
         if let Err(_e) = self.com_interface.send(pcdu_req_ser.as_bytes()) {
             log::warn!("polling PCDU switch info failed");
+            if let Err(e) = self.event_tx.send(pcdu::Event::SerialCommError) {
+                log::warn!("failed to send comm error event: {}", e);
+            }
         }
     }
 
@@ -551,12 +557,17 @@ mod tests {
         pub inner: SerialInterfaceDummy,
         pub send_queue: RefCell<VecDeque<Vec<u8>>>,
         pub reply_queue: RefCell<VecDeque<String>>,
+        /// Makes the next `send` call fail, to exercise comm-error handling.
+        pub fail_next_send: RefCell<bool>,
     }
 
     impl SerialInterface for SerialInterfaceTest {
         type Error = ();
 
         fn send(&self, data: &[u8]) -> Result<(), Self::Error> {
+            if self.fail_next_send.replace(false) {
+                return Err(());
+            }
             let mut send_queue_mut = self.send_queue.borrow_mut();
             send_queue_mut.push_back(data.to_vec());
             self.inner.send(data)
@@ -588,6 +599,7 @@ mod tests {
         pub tc_tx: mpsc::SyncSender<CcsdsTcPacketOwned>,
         pub tm_rx: mpsc::Receiver<CcsdsTmPacketOwned>,
         pub switch_request_tx: mpsc::Sender<SwitchRequest>,
+        pub event_rx: mpsc::Receiver<pcdu::Event>,
         pub handler: PcduHandler<SerialInterfaceTest>,
     }
 
@@ -598,6 +610,7 @@ mod tests {
             let (tc_tx, tc_rx) = mpsc::sync_channel(5);
             let (tm_tx, tm_rx) = mpsc::sync_channel(5);
             let (switch_request_tx, switch_reqest_rx) = mpsc::channel();
+            let (event_tx, event_rx) = mpsc::sync_channel(5);
             let shared_switch_map =
                 Arc::new(Mutex::new(SwitchSet::new_with_init_switches_unknown()));
             let handler = PcduHandler::new(
@@ -607,6 +620,7 @@ mod tests {
                 SerialInterfaceTest::default(),
                 shared_switch_map,
                 DeviceMode::Off,
+                event_tx,
             );
             Self {
                 mode_request_tx,
@@ -614,6 +628,7 @@ mod tests {
                 tc_tx,
                 tm_rx,
                 switch_request_tx,
+                event_rx,
                 handler,
             }
         }
@@ -662,6 +677,18 @@ mod tests {
             let pcdu_reply = PcduReply::from_sim_message(&sim_reply).unwrap();
             assert_eq!(pcdu_reply, PcduReply::SwitchInfo(expected_map));
         }
+    }
+
+    #[test]
+    fn test_periodic_command_send_failure_sends_event() {
+        let testbench = PcduTestbench::new();
+        *testbench.handler.com_interface.fail_next_send.borrow_mut() = true;
+        testbench.handler.handle_periodic_commands();
+        let event = testbench
+            .event_rx
+            .try_recv()
+            .expect("expected comm error event");
+        assert!(matches!(event, pcdu::Event::SerialCommError));
     }
 
     #[test]

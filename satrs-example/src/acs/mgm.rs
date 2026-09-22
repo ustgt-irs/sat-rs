@@ -170,6 +170,7 @@ pub struct MgmHandlerLis3Mdl {
     mode_leaf_helper: ModeLeafHelper,
     spi_fault_counter: FaultCounterStd,
     health_table: HealthTableMapSync,
+    event_tx: mpsc::SyncSender<(ComponentId, mgm::Event)>,
 }
 
 impl MgmHandlerLis3Mdl {
@@ -183,6 +184,7 @@ impl MgmHandlerLis3Mdl {
         mode_leaf_helper: ModeLeafHelper,
         mode_timeout: Duration,
         health_table: HealthTableMapSync,
+        event_tx: mpsc::SyncSender<(ComponentId, mgm::Event)>,
     ) -> Self {
         Self {
             id,
@@ -201,6 +203,7 @@ impl MgmHandlerLis3Mdl {
             mode_leaf_helper,
             spi_fault_counter: FaultCounterStd::new(SPI_FAULT_THRESHOLD, SPI_FAULT_DECREMENT_AFTER),
             health_table,
+            event_tx,
         }
     }
 
@@ -442,9 +445,12 @@ impl MgmHandlerLis3Mdl {
                 );
                 self.health_table
                     .set_health(component_id, HealthState::Faulty);
-                // TODO: Event? Health-table changes are currently invisible to the ground
-                // except through this log line. Likely applies to other health/mode
-                // transitions across the example app too, not just this one.
+                if let Err(e) = self.event_tx.send((
+                    self.id.component_id(),
+                    mgm::Event::SpiFaultThresholdExceeded,
+                )) {
+                    log::warn!("{}: failed to send fault event: {}", self.id.str(), e);
+                }
                 // Do not restart an already pending Off transition: poll_sensor still calls
                 // this every cycle the fault persists, and current stays Normal until the
                 // transition completes, so re-triggering here would keep resetting the
@@ -496,7 +502,16 @@ impl MgmHandlerLis3Mdl {
 
     fn announce_mode(&self) {
         log::info!("{} announcing mode: {:?}", self.id.str(), self.mode());
-        // TODO: Event?
+        if let Err(e) = self
+            .event_tx
+            .send((self.id.component_id(), mgm::Event::ModeChanged(self.mode())))
+        {
+            log::warn!(
+                "{}: failed to send mode changed event: {}",
+                self.id.str(),
+                e
+            );
+        }
     }
 
     fn report_mode_to_parent(&self) {
@@ -567,6 +582,7 @@ mod tests {
         pub tm_rx: mpsc::Receiver<CcsdsTmPacketOwned>,
         pub switch_rx: mpsc::Receiver<SwitchRequest>,
         pub health_table: HealthTableMapSync,
+        pub event_rx: mpsc::Receiver<(ComponentId, mgm::Event)>,
         pub handler: MgmHandlerLis3Mdl,
     }
 
@@ -587,6 +603,7 @@ mod tests {
             let switch_map = SwitchSet::new(switch_map);
             let shared_switch_set = SharedSwitchSet::new(Mutex::new(switch_map));
             let health_table = HealthTableMapSync::default();
+            let (event_tx, event_rx) = mpsc::sync_channel(5);
             let handler = MgmHandlerLis3Mdl::new(
                 MgmId::_0,
                 TmtcQueues { tc_rx, tm_tx },
@@ -596,6 +613,7 @@ mod tests {
                 mode_leaf_helper,
                 Duration::from_millis(100),
                 health_table.clone(),
+                event_tx,
             );
             Self {
                 assembly_mode_request_tx,
@@ -603,6 +621,7 @@ mod tests {
                 shared_switch_set,
                 switch_rx,
                 health_table,
+                event_rx,
                 handler,
                 tm_rx,
                 tc_tx,
@@ -685,6 +704,13 @@ mod tests {
             postcard::from_bytes::<types::acs::mgm::response::Response>(&tm_packet.payload)
                 .expect("failed to deserialize mode reply");
         matches!(response, types::acs::mgm::response::Response::Ok);
+
+        let (sender_id, event) = testbench
+            .event_rx
+            .try_recv()
+            .expect("expected mode changed event");
+        assert_eq!(sender_id, ComponentId::AcsMgm0);
+        assert!(matches!(event, mgm::Event::ModeChanged(DeviceMode::Normal)));
         // The device should have been polled once.
         assert_eq!(testbench.test_spi_interface().call_count, 1);
         let mgm_set = *testbench.handler.shared_mgm_set.lock().unwrap();
@@ -871,6 +897,11 @@ mod tests {
     fn test_spi_fault_above_threshold_marks_component_faulty() {
         let mut testbench = MgmTestbench::new();
         testbench.switch_to_normal();
+        // Drain the mode changed event emitted by switch_to_normal().
+        testbench
+            .event_rx
+            .try_recv()
+            .expect("expected mode changed event");
         testbench.test_spi_interface().next_mgm_data = MgmLis3RawValues {
             x: -1,
             y: -1,
@@ -885,6 +916,9 @@ mod tests {
             Some(HealthState::Faulty)
         );
         assert!(!testbench.handler.shared_mgm_set.lock().unwrap().valid);
+        let (sender_id, event) = testbench.event_rx.try_recv().expect("expected fault event");
+        assert_eq!(sender_id, ComponentId::AcsMgm0);
+        assert!(matches!(event, mgm::Event::SpiFaultThresholdExceeded));
     }
 
     #[test]
