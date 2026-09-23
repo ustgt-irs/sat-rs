@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - Added `hk` module helpers to track whether a single HK set needs regeneration:
   `SingleSetHkHelperStd` (`std`), `SingleSetHkHelperEmbassy` (new `embassy-time` feature),
   and `SingleSetHkHelperCountdown`, generic over the existing `Countdown` trait.
+- Added `fdir::RecoveryFdir` (`std`), which escalates component faults to a power cycle
+  recovery first and to a faulty component if it has to be recovered too often.
+- Added `fdir::RecoveryEvent` for recovery related events.
 
 # [v0.3.0-alpha.3] 2025-11-06
 
