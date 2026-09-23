@@ -62,11 +62,11 @@ pub struct SensorData {
 #[strum_discriminants(derive(num_enum::IntoPrimitive))]
 #[repr(u16)]
 pub enum Event {
-    /// The SPI fault counter exceeded its threshold, the component was marked faulty and
-    /// commanded off.
+    /// The SPI fault counter exceeded its threshold. Followed by a recovery event.
     SpiFaultThresholdExceeded,
     /// A commanded or autonomous mode transition completed.
     ModeChanged(crate::DeviceMode),
+    Recovery(satrs::fdir::RecoveryEvent),
 }
 
 impl crate::Message for Event {
@@ -77,7 +77,10 @@ impl crate::Message for Event {
 
 impl crate::EventId for Event {
     fn event_id(&self) -> u16 {
-        EventDiscriminants::from(self).into()
+        match self {
+            Event::Recovery(event) => crate::recovery_event_id(*event),
+            _ => EventDiscriminants::from(self).into(),
+        }
     }
 }
 

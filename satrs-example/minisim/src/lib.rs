@@ -217,12 +217,20 @@ pub mod acs {
         AllOnes,
     }
 
+    #[derive(Debug, Default, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+    pub struct SpiFault {
+        pub mode: SpiFaultMode,
+        /// The fault is cleared when the device is switched off, so a power cycle recovers
+        /// from it.
+        pub cleared_by_power_cycle: bool,
+    }
+
     #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
     pub enum MgmRequestLis3Mdl {
         RequestSensorData,
         /// Force the raw register reply into a stuck-bus pattern, regardless of switch state.
         /// Used to test FDIR handling of SPI bus faults.
-        SetSpiFault(SpiFaultMode),
+        SetSpiFault(SpiFault),
     }
 
     impl SerializableSimMsgPayload<SimRequest> for MgmRequestLis3Mdl {

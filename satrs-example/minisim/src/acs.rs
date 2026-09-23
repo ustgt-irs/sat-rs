@@ -7,7 +7,7 @@ use nexosim::{
 use satrs_minisim::{
     acs::{
         lis3mdl::MgmLis3MdlReply, MgmReplyCommon, MgmReplyProvider, MgmSensorValuesMicroTesla,
-        MgtDipole, MgtHkSet, MgtReply, SpiFaultMode, MGT_GEN_MAGNETIC_FIELD,
+        MgtDipole, MgtHkSet, MgtReply, SpiFault, MGT_GEN_MAGNETIC_FIELD,
     },
     SimReply,
 };
@@ -34,7 +34,7 @@ pub struct MagnetometerModel<ReplyProvider: MgmReplyProvider> {
     #[allow(dead_code)]
     pub periodicity: Duration,
     pub external_mag_field: Option<MgmSensorValuesMicroTesla>,
-    pub spi_fault: SpiFaultMode,
+    pub spi_fault: SpiFault,
     pub reply_sender: mpsc::Sender<SimReply>,
     pub phatom: std::marker::PhantomData<ReplyProvider>,
 }
@@ -45,7 +45,7 @@ impl MagnetometerModel<MgmLis3MdlReply> {
             switch_state: SwitchStateBinary::Off,
             periodicity,
             external_mag_field: None,
-            spi_fault: SpiFaultMode::None,
+            spi_fault: SpiFault::default(),
             reply_sender,
             phatom: std::marker::PhantomData,
         }
@@ -55,11 +55,14 @@ impl MagnetometerModel<MgmLis3MdlReply> {
 impl<ReplyProvider: MgmReplyProvider> MagnetometerModel<ReplyProvider> {
     pub async fn switch_device(&mut self, switch_state: SwitchStateBinary) {
         self.switch_state = switch_state;
+        if switch_state == SwitchStateBinary::Off && self.spi_fault.cleared_by_power_cycle {
+            self.spi_fault = SpiFault::default();
+        }
     }
 
     /// Force (or clear) a stuck-bus SPI fault, for FDIR testing purposes.
-    pub async fn set_spi_fault(&mut self, fault_mode: SpiFaultMode) {
-        self.spi_fault = fault_mode;
+    pub async fn set_spi_fault(&mut self, fault: SpiFault) {
+        self.spi_fault = fault;
     }
 
     pub async fn send_sensor_values(&mut self, _: (), scheduler: &mut Context<Self>) {
@@ -70,7 +73,7 @@ impl<ReplyProvider: MgmReplyProvider> MagnetometerModel<ReplyProvider> {
                     sensor_values: self
                         .calculate_current_mgm_tuple(current_millis(scheduler.time())),
                 },
-                self.spi_fault,
+                self.spi_fault.mode,
             ))
             .expect("sending MGM sensor values failed");
     }
@@ -193,13 +196,16 @@ pub mod tests {
     use satrs_minisim::{
         acs::{
             lis3mdl::{self, MgmLis3MdlReply},
-            MgmRequestLis3Mdl, MgtDipole, MgtHkSet, MgtReply, MgtRequest, SpiFaultMode,
+            MgmRequestLis3Mdl, MgtDipole, MgtHkSet, MgtReply, MgtRequest, SpiFault, SpiFaultMode,
         },
         SerializableSimMsgPayload, SimComponent, SimMessageProvider, SimRequest,
     };
     use types::pcdu::{SwitchId, SwitchStateBinary};
 
-    use crate::{eps::tests::switch_device_on, test_helpers::SimTestbench};
+    use crate::{
+        eps::tests::{switch_device_off, switch_device_on},
+        test_helpers::SimTestbench,
+    };
 
     #[test]
     fn test_basic_mgm_request() {
@@ -222,19 +228,20 @@ pub mod tests {
         assert_eq!(reply.common.sensor_values.z, 0.0);
     }
 
-    #[test]
-    fn test_mgm_spi_fault_injection_all_ones() {
-        let mut sim_testbench = SimTestbench::new();
-        switch_device_on(&mut sim_testbench, SwitchId::Mgm0);
-
+    fn inject_spi_fault(sim_testbench: &mut SimTestbench, cleared_by_power_cycle: bool) {
         let fault_request =
-            SimRequest::new_with_epoch_time(MgmRequestLis3Mdl::SetSpiFault(SpiFaultMode::AllOnes));
+            SimRequest::new_with_epoch_time(MgmRequestLis3Mdl::SetSpiFault(SpiFault {
+                mode: SpiFaultMode::AllOnes,
+                cleared_by_power_cycle,
+            }));
         sim_testbench
             .send_request(fault_request)
             .expect("sending MGM fault injection request failed");
         sim_testbench.handle_sim_requests_time_agnostic();
         sim_testbench.step().unwrap();
+    }
 
+    fn request_mgm_reply(sim_testbench: &mut SimTestbench) -> MgmLis3MdlReply {
         let data_request = SimRequest::new_with_epoch_time(MgmRequestLis3Mdl::RequestSensorData);
         sim_testbench
             .send_request(data_request)
@@ -244,13 +251,50 @@ pub mod tests {
         let sim_reply = sim_testbench
             .try_receive_next_reply()
             .expect("no MGM reply received");
-        let reply = MgmLis3MdlReply::from_sim_message(&sim_reply)
-            .expect("failed to deserialize MGM sensor values");
+        MgmLis3MdlReply::from_sim_message(&sim_reply)
+            .expect("failed to deserialize MGM sensor values")
+    }
+
+    fn is_stuck_bus_reply(reply: &MgmLis3MdlReply) -> bool {
+        reply.raw.x == -1 && reply.raw.y == -1 && reply.raw.z == -1
+    }
+
+    #[test]
+    fn test_mgm_spi_fault_injection_all_ones() {
+        let mut sim_testbench = SimTestbench::new();
+        switch_device_on(&mut sim_testbench, SwitchId::Mgm0);
+        inject_spi_fault(&mut sim_testbench, false);
+
+        let reply = request_mgm_reply(&mut sim_testbench);
         // Even though the device is switched on, the injected fault forces a stuck-bus reply.
         assert_eq!(reply.common.switch_state, SwitchStateBinary::On);
-        assert_eq!(reply.raw.x, -1);
-        assert_eq!(reply.raw.y, -1);
-        assert_eq!(reply.raw.z, -1);
+        assert!(is_stuck_bus_reply(&reply));
+    }
+
+    #[test]
+    fn test_mgm_spi_fault_cleared_by_power_cycle() {
+        let mut sim_testbench = SimTestbench::new();
+        switch_device_on(&mut sim_testbench, SwitchId::Mgm0);
+        inject_spi_fault(&mut sim_testbench, true);
+        assert!(is_stuck_bus_reply(&request_mgm_reply(&mut sim_testbench)));
+
+        switch_device_off(&mut sim_testbench, SwitchId::Mgm0);
+        switch_device_on(&mut sim_testbench, SwitchId::Mgm0);
+        sim_testbench.step_until(Duration::from_millis(50)).unwrap();
+        assert!(!is_stuck_bus_reply(&request_mgm_reply(&mut sim_testbench)));
+    }
+
+    #[test]
+    fn test_mgm_spi_fault_persists_after_power_cycle() {
+        let mut sim_testbench = SimTestbench::new();
+        switch_device_on(&mut sim_testbench, SwitchId::Mgm0);
+        inject_spi_fault(&mut sim_testbench, false);
+
+        switch_device_off(&mut sim_testbench, SwitchId::Mgm0);
+        switch_device_on(&mut sim_testbench, SwitchId::Mgm0);
+        let reply = request_mgm_reply(&mut sim_testbench);
+        assert_eq!(reply.common.switch_state, SwitchStateBinary::On);
+        assert!(is_stuck_bus_reply(&reply));
     }
 
     #[test]

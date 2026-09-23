@@ -4,7 +4,7 @@ use clap::Parser as _;
 use satrs_example::config::{OBSW_SERVER_ADDR, SERVER_PORT};
 use satrs_minisim::{
     SerializableSimMsgPayload, SimComponent, SimCtrlReply, SimCtrlRequest, SimMessageProvider,
-    SimReply, SimRequest, acs::MgmRequestLis3Mdl, acs::SpiFaultMode, udp::SIM_CTRL_PORT,
+    SimReply, SimRequest, acs, acs::MgmRequestLis3Mdl, acs::SpiFault, udp::SIM_CTRL_PORT,
 };
 use spacepackets::{CcsdsPacketIdAndPsc, SpacePacketHeader};
 use std::{
@@ -89,20 +89,31 @@ impl From<EventSenderSelect> for types::ComponentId {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, clap::ValueEnum)]
-enum SpiFaultModeSelect {
+enum FaultMode {
     None,
+    /// SPI communication is all zeroes, modelling an unconnected sensor.
     AllZeros,
+    /// SPI communication is all ones, modelling a broken sensor.
     AllOnes,
 }
 
-impl From<SpiFaultModeSelect> for SpiFaultMode {
-    fn from(mode: SpiFaultModeSelect) -> Self {
+impl From<FaultMode> for acs::SpiFaultMode {
+    fn from(mode: FaultMode) -> Self {
         match mode {
-            SpiFaultModeSelect::None => SpiFaultMode::None,
-            SpiFaultModeSelect::AllZeros => SpiFaultMode::AllZeros,
-            SpiFaultModeSelect::AllOnes => SpiFaultMode::AllOnes,
+            FaultMode::None => acs::SpiFaultMode::None,
+            FaultMode::AllZeros => acs::SpiFaultMode::AllZeros,
+            FaultMode::AllOnes => acs::SpiFaultMode::AllOnes,
         }
     }
+}
+
+#[derive(Debug, Default, PartialEq, Eq, Clone, Copy, clap::ValueEnum)]
+enum FaultKind {
+    /// Cleared when the device is switched off, so a power cycle recovers from it.
+    Transient,
+    /// Survives power cycles.
+    #[default]
+    Permanent,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, clap::ValueEnum)]
@@ -139,7 +150,10 @@ struct MgmArgs {
     /// Only takes effect for MGM0: minisim always routes this fault to the MGM0 model
     /// regardless of which MGM the request names (a pre-existing minisim limitation).
     #[arg(long, value_enum)]
-    spi_fault: Option<SpiFaultModeSelect>,
+    fault: Option<FaultMode>,
+    /// Whether a power cycle clears the injected SPI fault.
+    #[arg(long, value_enum, default_value_t)]
+    fault_kind: FaultKind,
     /// Override the device's FDIR health state, for example to clear a `Faulty` state set by
     /// the handler after the underlying issue has been fixed or worked around.
     #[arg(long, value_enum)]
@@ -187,11 +201,14 @@ fn handle_mgm_command(
     target_id: types::ComponentId,
     args: MgmArgs,
 ) -> anyhow::Result<()> {
-    if let Some(mode) = args.spi_fault {
+    if let Some(mode) = args.fault {
         if target_id != types::ComponentId::AcsMgm0 {
             bail!("SPI fault injection is only supported for MGM0 right now (minisim limitation)");
         }
-        inject_mgm_failure(mode.into())?;
+        inject_mgm_failure(SpiFault {
+            mode: mode.into(),
+            cleared_by_power_cycle: args.fault_kind == FaultKind::Transient,
+        })?;
     }
     if args.ping {
         let request = types::ccsds::CcsdsTcPacketOwned::new_with_request(
@@ -477,12 +494,12 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Injects the given SPI fault mode directly into minisim's MGM0 model, bypassing the OBSW.
+/// Injects the given SPI fault directly into minisim's MGM0 model, bypassing the OBSW.
 ///
 /// Confirms the simulator is actually reachable first (same ping/pong check the OBSW's own
 /// internal sim client does, see `SimClientUdp::attempt_connection`), since a fire-and-forget
 /// UDP send would otherwise silently do nothing if minisim is not running.
-fn inject_mgm_failure(mode: SpiFaultMode) -> anyhow::Result<()> {
+fn inject_mgm_failure(fault: SpiFault) -> anyhow::Result<()> {
     let sim_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), SIM_CTRL_PORT);
     let sim_socket = UdpSocket::bind("127.0.0.1:0")?;
     sim_socket.set_read_timeout(Some(Duration::from_millis(200)))?;
@@ -514,10 +531,41 @@ fn inject_mgm_failure(mode: SpiFaultMode) -> anyhow::Result<()> {
         Err(e) => return Err(e.into()),
     }
 
-    let request = SimRequest::new_with_epoch_time(MgmRequestLis3Mdl::SetSpiFault(mode));
+    let request = SimRequest::new_with_epoch_time(MgmRequestLis3Mdl::SetSpiFault(fault));
     sim_socket.send_to(&serde_json::to_vec(&request)?, sim_addr)?;
-    log::info!("injected SPI fault mode {mode:?} into minisim MGM0");
+    log::info!("injected SPI fault {fault:?} into minisim MGM0");
     Ok(())
+}
+
+/// Each component has its own event type, so the sender ID determines how to decode the event.
+fn handle_event(sender_id: types::ComponentId, data: &[u8]) {
+    fn log_event<E: serde::de::DeserializeOwned + core::fmt::Debug>(
+        sender_id: types::ComponentId,
+        data: &[u8],
+    ) {
+        match postcard::from_bytes::<E>(data) {
+            Ok(event) => log::info!("Received event from {:?}: {:?}", sender_id, event),
+            Err(e) => log::warn!("Failed to deserialize event from {:?}: {}", sender_id, e),
+        }
+    }
+    match sender_id {
+        types::ComponentId::Controller => log_event::<types::Event>(sender_id, data),
+        types::ComponentId::AcsMgm0 | types::ComponentId::AcsMgm1 => {
+            log_event::<types::acs::mgm::Event>(sender_id, data)
+        }
+        types::ComponentId::AcsMgmAssembly => {
+            log_event::<types::acs::mgm_assembly::Event>(sender_id, data)
+        }
+        types::ComponentId::EpsPcdu => log_event::<types::pcdu::Event>(sender_id, data),
+        // TC source events are sent with the ID of the packet source.
+        types::ComponentId::UdpServer
+        | types::ComponentId::TcpServer
+        | types::ComponentId::Ground => log_event::<types::tmtc::Event>(sender_id, data),
+        _ => log::warn!(
+            "Received event from {:?} with unknown event type",
+            sender_id
+        ),
+    }
 }
 
 fn handle_raw_tm_packet(data: &[u8]) -> anyhow::Result<()> {
@@ -543,12 +591,7 @@ fn handle_raw_tm_packet(data: &[u8]) -> anyhow::Result<()> {
                 );
             }
             if tm_header.message_type == MessageType::Event {
-                let response = postcard::from_bytes::<types::Event>(remainder);
-                log::info!(
-                    "Received event from {:?}: {:?}",
-                    tm_header.sender_id,
-                    response.unwrap()
-                );
+                handle_event(tm_header.sender_id, remainder);
                 return Ok(());
             }
             match tm_header.sender_id {

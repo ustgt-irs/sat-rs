@@ -175,6 +175,14 @@ pub trait EventId {
     fn event_id(&self) -> u16;
 }
 
+/// Start of the event ID range for generic FDIR events, which are embedded into the event types
+/// of the components. These events have the same ID for all components.
+pub const FDIR_EVENT_ID_BASE: u16 = 0x100;
+
+pub const fn recovery_event_id(event: satrs::fdir::RecoveryEvent) -> u16 {
+    FDIR_EVENT_ID_BASE + event as u16
+}
+
 /// Generic device mode which covers the requirements of most devices.
 ///
 /// The states are related both to the physical and the logical state of the device. Some
