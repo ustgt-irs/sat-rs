@@ -9,6 +9,7 @@ use spacepackets::{
 pub mod acs;
 pub mod ccsds;
 pub mod control;
+pub mod event_manager;
 pub mod pcdu;
 pub mod tmtc;
 
@@ -63,6 +64,14 @@ pub enum Event {
 impl Message for Event {
     fn message_type(&self) -> MessageType {
         MessageType::Event
+    }
+}
+
+impl EventId for Event {
+    fn event_id(&self) -> u16 {
+        match self {
+            Event::ControllerEvent(event) => event.event_id(),
+        }
     }
 }
 
@@ -156,6 +165,14 @@ pub enum MessageType {
 
 pub trait Message {
     fn message_type(&self) -> MessageType;
+}
+
+/// Stable, per-variant numeric identifier for an event, meant to be referenced from ground
+/// (e.g. to enable/disable TM generation for one specific event) and to stay the same across
+/// releases. Unlike [core::mem::discriminant], this can be constructed from a raw number
+/// received in a telecommand.
+pub trait EventId {
+    fn event_id(&self) -> u16;
 }
 
 /// Generic device mode which covers the requirements of most devices.
