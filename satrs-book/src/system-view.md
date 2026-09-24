@@ -23,7 +23,7 @@ Flight software built with `sat-rs` is generally structured into three layers.
 The application layer stays largely the same across missions and targets. The system / platform
 layer is where the target environment determines which concrete crates and mechanisms are used.
 
-The book has specified chapters for some of the topics:
+The book has dedicated chapters for some of the topics:
 
 - [TMTC handling and Serialization](./tmtc-modelling.md)
 - [Events](./events.md)
@@ -36,7 +36,7 @@ small set of additional crates.
 
 ![Linux architecture](./images/satrs-arch-linux.drawio.png)
 
-The application layer uses `sat-rs` together with `spacepackets` for CCSDS/ECSS packet handling
+The application layer uses `sat-rs` together with `spacepackets` for CCSDS packet handling
 and `cfdp` for file transfer. The platform layer relies on `std` for tasks, IPC, memory, time and
 filesystem access, `serde` and `postcard` for serialization and `log`/`fern` for logging. Hardware
 access typically goes through Linux mechanisms like `uio`.
@@ -49,7 +49,7 @@ different, even though the application layer stays the same.
 ![Embassy/RTIC architecture](./images/satrs-arch-embassy.drawio.png)
 
 Here the platform layer is built around an async-centric executor, either
-[Embassy](https://embassy.dev/) or [RTICv2](https://rtic.rs/). `alloc`-based crates like
+[Embassy](https://embassy.dev/) or [RTICv2](https://rtic.rs/). `no_std` crates like
 `heapless` and `embedded-alloc` replace `std` collections and allocation, `defmt` replaces `log`
 for logging and hardware access goes through a board support package (BSP), a hardware
 abstraction layer (HAL) and a peripheral access crate (PAC) instead of the OS.

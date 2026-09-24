@@ -1,7 +1,7 @@
 # Events
 
 Events are an important mechanism used for remote systems to monitor unexpected
-or expected anomalies and events occuring on these systems. 
+or expected anomalies and events occurring on these systems. 
 They can improve the observability of a system significantly and provide a
 "paper trail" of what is happening or has happened on a satellite where regular
 housekeeping packets might not be sufficient. They can also be used for fault

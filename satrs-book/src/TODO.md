@@ -9,5 +9,5 @@
 
 Refer to new sections in the system view page:
 
-- [Fault, Detection, Isolation and Recovery (FDIR)](./fdir.md)
+- [Fault Detection, Isolation and Recovery (FDIR)](./fdir.md)
 - and the [mode tree](./mode-tree.md)
