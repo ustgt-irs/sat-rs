@@ -1,5 +1,5 @@
-use quote::{format_ident, quote, ToTokens};
-use syn::{parse_macro_input, ItemConst, LitStr};
+use quote::{ToTokens, format_ident, quote};
+use syn::{ItemConst, LitStr, parse_macro_input};
 
 /// This macro can be used to automatically generate introspection information for return codes.
 ///

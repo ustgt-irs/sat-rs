@@ -47,7 +47,7 @@ def main():
     parser.add_argument(
         "-p",
         "--package",
-        choices=["satrs", "satrs-minisim", "satrs-example"],
+        choices=["satrs", "minisim", "example-std"],
         default="satrs",
         help="Choose project to generate coverage for",
     )

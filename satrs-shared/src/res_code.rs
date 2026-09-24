@@ -1,8 +1,8 @@
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
+use spacepackets::ByteConversionError;
 use spacepackets::ecss::{EcssEnumU16, EcssEnumeration};
 use spacepackets::util::UnsignedEnum;
-use spacepackets::ByteConversionError;
 
 /// Simple [u16] based result code type which also allows to group related resultcodes.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]

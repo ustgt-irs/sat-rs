@@ -18,7 +18,7 @@ structure and guidance the following way:
    primary On-Board Software, so the choice was made to provide one example software which
    contains the various features provided by sat-rs.
 3. Providing a good test suite. This includes both unit tests and integration tests. The integration
-   tests can also serve as smaller usage examples than the large `satrs-example` application.
+   tests can also serve as smaller usage examples than the large `example-std` application.
 
 This library has special support for standards used in the space industry. The recommended
 standards are provided by the Consultative Committee for Space Data Systems (CCSDS):

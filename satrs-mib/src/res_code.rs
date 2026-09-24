@@ -159,7 +159,10 @@ mod tests {
                 3 => {
                     assert!(line.is_ok());
                     let line = line.unwrap();
-                    assert_eq!(line, "0x0002;0x00;0x02;NOT_ENOUGH_APP_DATA;;Not enough data inside the TC application data field");
+                    assert_eq!(
+                        line,
+                        "0x0002;0x00;0x02;NOT_ENOUGH_APP_DATA;;Not enough data inside the TC application data field"
+                    );
                 }
                 _ => (),
             }
