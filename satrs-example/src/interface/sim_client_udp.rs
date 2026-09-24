@@ -6,15 +6,14 @@ use std::{
 };
 
 use satrs::HandlingStatus;
-use satrs_minisim::{
-    SerializableSimMsgPayload, SimComponent, SimMessageProvider, SimReply, SimRequest,
-    udp::SIM_CTRL_PORT,
-};
+use satrs_minisim::{ComponentId, SimReply, SimRequestWithTime, udp::SIM_CTRL_PORT};
 use satrs_minisim::{SimCtrlReply, SimCtrlRequest};
 
-struct SimReplyMap(pub HashMap<SimComponent, mpsc::Sender<SimReply>>);
+struct SimReplyMap(pub HashMap<ComponentId, mpsc::Sender<SimReply>>);
 
-pub fn create_sim_client(sim_request_rx: mpsc::Receiver<SimRequest>) -> Option<SimClientUdp> {
+pub fn create_sim_client(
+    sim_request_rx: mpsc::Receiver<SimRequestWithTime>,
+) -> Option<SimClientUdp> {
     match SimClientUdp::new(
         SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, SIM_CTRL_PORT)),
         sim_request_rx,
@@ -45,7 +44,7 @@ pub enum SimClientCreationError {
 pub struct SimClientUdp {
     udp_client: UdpSocket,
     simulator_addr: SocketAddr,
-    sim_request_rx: mpsc::Receiver<SimRequest>,
+    sim_request_rx: mpsc::Receiver<SimRequestWithTime>,
     reply_map: SimReplyMap,
     reply_buf: [u8; 4096],
 }
@@ -53,7 +52,7 @@ pub struct SimClientUdp {
 impl SimClientUdp {
     pub fn new(
         simulator_addr: SocketAddr,
-        sim_request_rx: mpsc::Receiver<SimRequest>,
+        sim_request_rx: mpsc::Receiver<SimRequestWithTime>,
     ) -> Result<Self, SimClientCreationError> {
         let mut reply_buf: [u8; 4096] = [0; 4096];
         let mut udp_client = UdpSocket::bind("127.0.0.1:0")?;
@@ -74,22 +73,15 @@ impl SimClientUdp {
         simulator_addr: SocketAddr,
         reply_buf: &mut [u8],
     ) -> Result<(), SimClientCreationError> {
-        let sim_req = SimRequest::new_with_epoch_time(SimCtrlRequest::Ping);
+        let sim_req = SimRequestWithTime::new_with_epoch_time(SimCtrlRequest::Ping);
         let sim_req_json = serde_json::to_string(&sim_req).expect("failed to serialize SimRequest");
         udp_client.send_to(sim_req_json.as_bytes(), simulator_addr)?;
         match udp_client.recv(reply_buf) {
             Ok(reply_len) => {
                 let sim_reply: SimReply = serde_json::from_slice(&reply_buf[0..reply_len])?;
-                if sim_reply.component() != SimComponent::SimCtrl {
-                    return Err(SimClientCreationError::ReplyIsNotPong(sim_reply));
-                }
-                let sim_ctrl_reply =
-                    SimCtrlReply::from_sim_message(&sim_reply).expect("invalid SIM reply");
-                match sim_ctrl_reply {
-                    SimCtrlReply::InvalidRequest(_) => {
-                        panic!("received invalid request reply from UDP sim server")
-                    }
-                    SimCtrlReply::Pong => Ok(()),
+                match sim_reply {
+                    SimReply::SimCtrl(SimCtrlReply::Pong) => Ok(()),
+                    _ => Err(SimClientCreationError::ReplyIsNotPong(sim_reply)),
                 }
             }
             Err(e) => {
@@ -174,7 +166,7 @@ impl SimClientUdp {
 
     pub fn add_reply_recipient(
         &mut self,
-        component: SimComponent,
+        component: ComponentId,
         reply_sender: mpsc::Sender<SimReply>,
     ) {
         self.reply_map.0.insert(component, reply_sender);
@@ -195,8 +187,7 @@ pub mod tests {
     };
 
     use satrs_minisim::{
-        SerializableSimMsgPayload, SimComponent, SimCtrlReply, SimCtrlRequest, SimMessageProvider,
-        SimReply, SimRequest,
+        ComponentId, SimCtrlReply, SimCtrlRequest, SimReply, SimRequest, SimRequestWithTime,
         eps::{PcduReply, PcduRequest},
     };
 
@@ -204,7 +195,7 @@ pub mod tests {
 
     struct UdpSimTestServer {
         udp_server: UdpSocket,
-        request_tx: mpsc::Sender<SimRequest>,
+        request_tx: mpsc::Sender<SimRequestWithTime>,
         reply_rx: mpsc::Receiver<SimReply>,
         last_sender: Option<SocketAddr>,
         stop_signal: Arc<AtomicBool>,
@@ -213,7 +204,7 @@ pub mod tests {
 
     impl UdpSimTestServer {
         pub fn new(
-            request_tx: mpsc::Sender<SimRequest>,
+            request_tx: mpsc::Sender<SimRequestWithTime>,
             reply_rx: mpsc::Receiver<SimReply>,
             stop_signal: Arc<AtomicBool>,
         ) -> Self {
@@ -262,28 +253,19 @@ pub mod tests {
                 loop {
                     match self.udp_server.recv_from(&mut self.recv_buf) {
                         Ok((read_bytes, from)) => {
-                            let sim_request: SimRequest =
+                            let sim_request: SimRequestWithTime =
                                 serde_json::from_slice(&self.recv_buf[0..read_bytes])
                                     .expect("failed to deserialize SimRequest");
-                            if sim_request.component() == SimComponent::SimCtrl {
-                                // For a ping, we perform the reply handling here directly
-                                let sim_ctrl_request =
-                                    SimCtrlRequest::from_sim_message(&sim_request)
-                                        .expect("failed to convert SimRequest to SimCtrlRequest");
-                                match sim_ctrl_request {
-                                    SimCtrlRequest::Ping => {
-                                        no_data_received = false;
-                                        self.last_sender = Some(from);
-                                        let sim_reply = SimReply::new(&SimCtrlReply::Pong);
-                                        let sim_reply_json = serde_json::to_string(&sim_reply)
-                                            .expect("failed to serialize SimReply");
-                                        self.udp_server
-                                            .send_to(sim_reply_json.as_bytes(), from)
-                                            .expect(
-                                                "failed to send reply to client from UDP server",
-                                            );
-                                    }
-                                };
+                            // For a ping, we perform the reply handling here directly
+                            if sim_request.request == SimRequest::SimCtrl(SimCtrlRequest::Ping) {
+                                no_data_received = false;
+                                self.last_sender = Some(from);
+                                let sim_reply = SimReply::from(SimCtrlReply::Pong);
+                                let sim_reply_json = serde_json::to_string(&sim_reply)
+                                    .expect("failed to serialize SimReply");
+                                self.udp_server
+                                    .send_to(sim_reply_json.as_bytes(), from)
+                                    .expect("failed to send reply to client from UDP server");
                             }
                             // Forward each SIM request for testing purposes.
                             self.request_tx
@@ -332,9 +314,10 @@ pub mod tests {
         let sim_request = server_sim_request_rx
             .recv_timeout(Duration::from_millis(50))
             .expect("no SIM request received");
-        let ping_request = SimCtrlRequest::from_sim_message(&sim_request)
-            .expect("failed to create SimCtrlRequest");
-        assert_eq!(ping_request, SimCtrlRequest::Ping);
+        assert_eq!(
+            sim_request.request,
+            SimRequest::SimCtrl(SimCtrlRequest::Ping)
+        );
         // Stop the server.
         stop_signal.store(true, Ordering::Relaxed);
         jh0.join().unwrap();
@@ -360,18 +343,19 @@ pub mod tests {
 
         // Creating the client also performs the connection test.
         let mut client = SimClientUdp::new(server_addr, client_sim_req_rx).unwrap();
-        client.add_reply_recipient(SimComponent::Pcdu, client_pcdu_reply_tx);
+        client.add_reply_recipient(ComponentId::Pcdu, client_pcdu_reply_tx);
 
         let sim_request = server_sim_request_rx
             .recv_timeout(Duration::from_millis(50))
             .expect("no SIM request received");
-        let ping_request = SimCtrlRequest::from_sim_message(&sim_request)
-            .expect("failed to create SimCtrlRequest");
-        assert_eq!(ping_request, SimCtrlRequest::Ping);
+        assert_eq!(
+            sim_request.request,
+            SimRequest::SimCtrl(SimCtrlRequest::Ping)
+        );
 
         let pcdu_req = PcduRequest::RequestSwitchInfo;
         client_sim_req_tx
-            .send(SimRequest::new_with_epoch_time(pcdu_req))
+            .send(SimRequestWithTime::new_with_epoch_time(pcdu_req))
             .expect("send failed");
         client.operation();
 
@@ -379,14 +363,15 @@ pub mod tests {
         let sim_request = server_sim_request_rx
             .recv_timeout(Duration::from_millis(50))
             .expect("no SIM request received");
-        let req_recvd_on_server =
-            PcduRequest::from_sim_message(&sim_request).expect("failed to create SimCtrlRequest");
-        matches!(req_recvd_on_server, PcduRequest::RequestSwitchInfo);
+        assert_eq!(
+            sim_request.request,
+            SimRequest::Pcdu(PcduRequest::RequestSwitchInfo)
+        );
 
         // We inject the reply ourselves.
         let pcdu_reply = PcduReply::SwitchInfo(HashMap::new());
         server_sim_reply_tx
-            .send(SimReply::new(&pcdu_reply))
+            .send(SimReply::from(pcdu_reply.clone()))
             .expect("sending PCDU reply failed");
 
         // Now we verify that the reply is sent by the UDP server back to the client, and then
@@ -397,10 +382,8 @@ pub mod tests {
 
             match client_pcdu_reply_rx.try_recv() {
                 Ok(sim_reply) => {
-                    assert_eq!(sim_reply.component(), SimComponent::Pcdu);
-                    let pcdu_reply_from_client = PcduReply::from_sim_message(&sim_reply)
-                        .expect("failed to create PcduReply");
-                    assert_eq!(pcdu_reply_from_client, pcdu_reply);
+                    assert_eq!(sim_reply.component(), ComponentId::Pcdu);
+                    assert_eq!(sim_reply, SimReply::Pcdu(pcdu_reply.clone()));
                     pcdu_reply_received = true;
                     break;
                 }

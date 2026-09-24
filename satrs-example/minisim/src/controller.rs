@@ -1,18 +1,20 @@
-use std::{sync::mpsc, time::Duration};
+use std::{
+    sync::mpsc,
+    time::{Duration, SystemTime},
+};
 
 use nexosim::{
-    simulation::{Address, Scheduler, Simulation},
+    simulation::{Address, Mailbox, SimInit, Simulation},
     time::{Clock, MonotonicTime, SystemClock},
 };
 use satrs_minisim::{
-    acs::{MgmRequestLis3Mdl, MgmRequestLis3MdlMgm0, MgmRequestLis3MdlMgm1, MgtRequest},
+    acs::{mgm, mgt},
     eps::PcduRequest,
-    SerializableSimMsgPayload, SimComponent, SimCtrlReply, SimCtrlRequest, SimMessageProvider,
-    SimReply, SimRequest, SimRequestError,
+    SimCtrlReply, SimCtrlRequest, SimReply, SimRequest, SimRequestWithTime,
 };
 
 use crate::{
-    acs::{mgm::MagnetometerModel, mgt::MagnetorquerModel},
+    acs::{mgm::MgmModel, mgt::MgtModel},
     eps::PcduModel,
 };
 
@@ -23,55 +25,85 @@ const MGM_REQ_WIRETAPPING: bool = false;
 const PCDU_REQ_WIRETAPPING: bool = false;
 const MGT_REQ_WIRETAPPING: bool = false;
 
-pub struct ModelAddrWrapper {
-    mgm_0_addr: Address<MagnetometerModel>,
-    mgm_1_addr: Address<MagnetometerModel>,
-    pcdu_addr: Address<PcduModel>,
-    mgt_addr: Address<MagnetorquerModel>,
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum ThreadingModel {
+    Default = 0,
+    Single = 1,
+}
+
+struct ModelAddresses {
+    mgm_0: Address<MgmModel>,
+    mgm_1: Address<MgmModel>,
+    pcdu: Address<PcduModel>,
+    mgt: Address<MgtModel>,
 }
 
 // The simulation controller processes requests and drives the simulation.
-#[allow(dead_code)]
 pub struct SimController {
-    pub sys_clock: SystemClock,
-    pub request_receiver: mpsc::Receiver<SimRequest>,
-    pub reply_sender: mpsc::Sender<SimReply>,
+    sys_clock: SystemClock,
+    request_receiver: mpsc::Receiver<SimRequestWithTime>,
+    reply_sender: mpsc::Sender<SimReply>,
     pub simulation: Simulation,
-    pub scheduler: Scheduler,
-    pub addr_wrapper: ModelAddrWrapper,
+    addrs: ModelAddresses,
 }
 
-impl ModelAddrWrapper {
-    pub fn new(
-        mgm_0_addr: Address<MagnetometerModel>,
-        mgm_1_addr: Address<MagnetometerModel>,
-        pcdu_addr: Address<PcduModel>,
-        mgt_addr: Address<MagnetorquerModel>,
-    ) -> Self {
-        Self {
-            mgm_0_addr,
-            mgm_1_addr,
-            pcdu_addr,
-            mgt_addr,
-        }
-    }
-}
 impl SimController {
     pub fn new(
-        sys_clock: SystemClock,
-        request_receiver: mpsc::Receiver<SimRequest>,
+        threading_model: ThreadingModel,
+        start_time: MonotonicTime,
         reply_sender: mpsc::Sender<SimReply>,
-        simulation: Simulation,
-        scheduler: Scheduler,
-        addr_wrapper: ModelAddrWrapper,
+        request_receiver: mpsc::Receiver<SimRequestWithTime>,
     ) -> Self {
+        let mgm_0_model = MgmModel::new(mgm::Id::Mgm0, reply_sender.clone());
+        let mgm_1_model = MgmModel::new(mgm::Id::Mgm1, reply_sender.clone());
+        let mut pcdu_model = PcduModel::new(reply_sender.clone());
+        let mut mgt_model = MgtModel::new(reply_sender.clone());
+
+        let mgm_0_mailbox = Mailbox::new();
+        let mgm_1_mailbox = Mailbox::new();
+        let pcdu_mailbox = Mailbox::new();
+        let mgt_mailbox = Mailbox::new();
+        let addrs = ModelAddresses {
+            mgm_0: mgm_0_mailbox.address(),
+            mgm_1: mgm_1_mailbox.address(),
+            pcdu: pcdu_mailbox.address(),
+            mgt: mgt_mailbox.address(),
+        };
+
+        pcdu_model
+            .mgm_0_switch
+            .connect(MgmModel::switch_device, &addrs.mgm_0);
+        pcdu_model
+            .mgm_1_switch
+            .connect(MgmModel::switch_device, &addrs.mgm_1);
+        pcdu_model
+            .mgt_switch
+            .connect(MgtModel::switch_device, &addrs.mgt);
+        mgt_model
+            .gen_magnetic_field
+            .connect(MgmModel::apply_external_magnetic_field, &addrs.mgm_0);
+        mgt_model
+            .gen_magnetic_field
+            .connect(MgmModel::apply_external_magnetic_field, &addrs.mgm_1);
+
+        let sim_init = if threading_model == ThreadingModel::Single {
+            SimInit::with_num_threads(1)
+        } else {
+            SimInit::new()
+        };
+        let (simulation, _scheduler) = sim_init
+            .add_model(mgm_0_model, mgm_0_mailbox, "MGM 0 model")
+            .add_model(mgm_1_model, mgm_1_mailbox, "MGM 1 model")
+            .add_model(pcdu_model, pcdu_mailbox, "PCDU model")
+            .add_model(mgt_model, mgt_mailbox, "MGT model")
+            .init(start_time)
+            .unwrap();
         Self {
-            sys_clock,
+            sys_clock: SystemClock::from_system_time(start_time, SystemTime::now()),
             request_receiver,
             reply_sender,
             simulation,
-            scheduler,
-            addr_wrapper,
+            addrs,
         }
     }
 
@@ -97,14 +129,11 @@ impl SimController {
                     if request.timestamp < old_timestamp && WARNING_FOR_STALE_DATA {
                         log::warn!("stale data with timestamp {:?} received", request.timestamp);
                     }
-                    if let Err(e) = match request.component() {
-                        SimComponent::SimCtrl => self.handle_ctrl_request(&request),
-                        SimComponent::Mgm0Lis3Mdl => self.handle_mgm_request(0, &request),
-                        SimComponent::Mgm1Lis3Mdl => self.handle_mgm_request(1, &request),
-                        SimComponent::Mgt => self.handle_mgt_request(&request),
-                        SimComponent::Pcdu => self.handle_pcdu_request(&request),
-                    } {
-                        self.handle_invalid_request_with_valid_target(e, &request)
+                    match request.request {
+                        SimRequest::SimCtrl(request) => self.handle_ctrl_request(request),
+                        SimRequest::Mgm { id, request } => self.handle_mgm_request(id, request),
+                        SimRequest::Mgt(request) => self.handle_mgt_request(request),
+                        SimRequest::Pcdu(request) => self.handle_pcdu_request(request),
                     }
                 }
                 Err(e) => match e {
@@ -117,8 +146,7 @@ impl SimController {
         }
     }
 
-    fn handle_ctrl_request(&mut self, request: &SimRequest) -> Result<(), SimRequestError> {
-        let sim_ctrl_request = SimCtrlRequest::from_sim_message(request)?;
+    fn handle_ctrl_request(&mut self, sim_ctrl_request: SimCtrlRequest) {
         if SIM_CTRL_REQ_WIRETAPPING {
             log::info!("received sim ctrl request: {sim_ctrl_request:?}");
         }
@@ -126,115 +154,67 @@ impl SimController {
             SimCtrlRequest::Ping => {
                 log::info!("received ping request, a client is connecting");
                 self.reply_sender
-                    .send(SimReply::new(&SimCtrlReply::Pong))
+                    .send(SimReply::from(SimCtrlReply::Pong))
                     .expect("sending reply from sim controller failed");
             }
         }
-        Ok(())
     }
 
-    fn handle_mgm_request(
-        &mut self,
-        mgm_idx: usize,
-        request: &SimRequest,
-    ) -> Result<(), SimRequestError> {
-        let (mgm_request, addr) = match mgm_idx {
-            0 => (
-                MgmRequestLis3MdlMgm0::from_sim_message(request)?.0,
-                &self.addr_wrapper.mgm_0_addr,
-            ),
-            1 => (
-                MgmRequestLis3MdlMgm1::from_sim_message(request)?.0,
-                &self.addr_wrapper.mgm_1_addr,
-            ),
-            _ => panic!("invalid mgm index"),
+    fn handle_mgm_request(&mut self, mgm_id: mgm::Id, mgm_request: mgm::Request) {
+        let addr = match mgm_id {
+            mgm::Id::Mgm0 => &self.addrs.mgm_0,
+            mgm::Id::Mgm1 => &self.addrs.mgm_1,
         };
         if MGM_REQ_WIRETAPPING {
-            log::info!("received MGM{mgm_idx} request: {mgm_request:?}");
+            log::info!("received {mgm_id:?} request: {mgm_request:?}");
         }
         match mgm_request {
-            MgmRequestLis3Mdl::RequestSensorData => {
+            mgm::Request::RequestSensorData => {
                 self.simulation
-                    .process_event(MagnetometerModel::send_sensor_values, (), addr)
+                    .process_event(MgmModel::send_sensor_values, (), addr)
                     .expect("event execution error for mgm");
             }
-            MgmRequestLis3Mdl::SetSpiFault(fault_mode) => {
-                log::info!("MGM{mgm_idx}: setting SPI fault mode to {fault_mode:?}");
+            mgm::Request::SetSpiFault(fault_mode) => {
+                log::info!("{mgm_id:?}: setting SPI fault mode to {fault_mode:?}");
                 self.simulation
-                    .process_event(MagnetometerModel::set_spi_fault, fault_mode, addr)
+                    .process_event(MgmModel::set_spi_fault, fault_mode, addr)
                     .expect("event execution error for mgm");
             }
         }
-        Ok(())
     }
 
-    fn handle_pcdu_request(&mut self, request: &SimRequest) -> Result<(), SimRequestError> {
-        let pcdu_request = PcduRequest::from_sim_message(request)?;
+    fn handle_pcdu_request(&mut self, pcdu_request: PcduRequest) {
         if PCDU_REQ_WIRETAPPING {
             log::info!("received PCDU request: {pcdu_request:?}");
         }
         match pcdu_request {
             PcduRequest::RequestSwitchInfo => {
                 self.simulation
-                    .process_event(
-                        PcduModel::request_switch_info,
-                        (),
-                        &self.addr_wrapper.pcdu_addr,
-                    )
+                    .process_event(PcduModel::request_switch_info, (), &self.addrs.pcdu)
                     .unwrap();
             }
             PcduRequest::SwitchDevice { switch, state } => {
                 self.simulation
-                    .process_event(
-                        PcduModel::switch_device,
-                        (switch, state),
-                        &self.addr_wrapper.pcdu_addr,
-                    )
+                    .process_event(PcduModel::switch_device, (switch, state), &self.addrs.pcdu)
                     .unwrap();
             }
         }
-        Ok(())
     }
 
-    fn handle_mgt_request(&mut self, request: &SimRequest) -> Result<(), SimRequestError> {
-        let mgt_request = MgtRequest::from_sim_message(request)?;
+    fn handle_mgt_request(&mut self, mgt_request: mgt::Request) {
         if MGT_REQ_WIRETAPPING {
             log::info!("received MGT request: {mgt_request:?}");
         }
         match mgt_request {
-            MgtRequest::ApplyTorque { duration, dipole } => self
+            mgt::Request::ApplyTorque { duration, dipole } => self
                 .simulation
-                .process_event(
-                    MagnetorquerModel::apply_torque,
-                    (duration, dipole),
-                    &self.addr_wrapper.mgt_addr,
-                )
+                .process_event(MgtModel::apply_torque, (duration, dipole), &self.addrs.mgt)
                 .unwrap(),
-            MgtRequest::RequestHk => self
+            mgt::Request::RequestHk => self
                 .simulation
-                .process_event(
-                    MagnetorquerModel::request_housekeeping_data,
-                    (),
-                    &self.addr_wrapper.mgt_addr,
-                )
+                .process_event(MgtModel::request_housekeeping_data, (), &self.addrs.mgt)
                 .unwrap(),
         };
-        Ok(())
-    }
-
-    fn handle_invalid_request_with_valid_target(
-        &self,
-        error: SimRequestError,
-        request: &SimRequest,
-    ) {
-        log::warn!(
-            "received invalid {:?} request: {:?}",
-            request.component(),
-            error
-        );
-        self.reply_sender
-            .send(SimReply::new(&SimCtrlReply::from(error)))
-            .expect("sending reply from sim controller failed");
     }
 }
 
@@ -247,18 +227,9 @@ mod tests {
     #[test]
     fn test_basic_ping() {
         let mut sim_testbench = SimTestbench::new();
-        let request = SimRequest::new_with_epoch_time(SimCtrlRequest::Ping);
-        sim_testbench
-            .send_request(request)
-            .expect("sending sim ctrl request failed");
-        sim_testbench.handle_sim_requests_time_agnostic();
-        sim_testbench.step().unwrap();
-        let sim_reply = sim_testbench.try_receive_next_reply();
-        assert!(sim_reply.is_some());
-        let sim_reply = sim_reply.unwrap();
-        assert_eq!(sim_reply.component(), SimComponent::SimCtrl);
-        let reply = SimCtrlReply::from_sim_message(&sim_reply)
-            .expect("failed to deserialize MGM sensor values");
-        assert_eq!(reply, SimCtrlReply::Pong);
+        assert_eq!(
+            sim_testbench.request_reply(SimCtrlRequest::Ping),
+            Some(SimReply::SimCtrl(SimCtrlReply::Pong))
+        );
     }
 }
