@@ -1,7 +1,7 @@
 # sat-rs Example Application
 
 The `sat-rs` library includes a monolithic example application which can be found inside
-the [`satrs-example`](https://egit.irs.uni-stuttgart.de/rust/sat-rs/src/branch/main/satrs-example)
+the [`satrs-example`](https://egit.irs.uni-stuttgart.de/rust/sat-rs/src/branch/main/examples/obsw-std)
 subdirectory of the repository. The primary purpose of this example application is to show how
 the various components of the sat-rs framework could be used as part of a larger on-board
 software application.

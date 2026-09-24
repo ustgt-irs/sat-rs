@@ -13,7 +13,7 @@ name = "integration"
 harness = false
 
 [dependencies]
-embedded-types = { path = "../types", features = ["defmt"] }
+embedded-types = { path = "../embedded-types", features = ["defmt"] }
 
 cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
 arbitrary-int = "2"

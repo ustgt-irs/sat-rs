@@ -9,7 +9,7 @@ serialport = "4"
 toml = "0.9"
 serde = { version = "1", features = ["derive"] }
 spacepackets = { version = "0.18" }
-embedded-types = { path = "../types" }
+embedded-types = { path = "../embedded-types" }
 tmtc-utils = { path = "../../tmtc-utils" }
 postcard = { version = "1", features = ["alloc"] }
 anyhow = "1"

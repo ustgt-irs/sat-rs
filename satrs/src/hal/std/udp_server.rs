@@ -55,9 +55,9 @@ use std::vec::Vec;
 /// matches!(packet_receiver.try_recv(), Err(mpsc::TryRecvError::Empty));
 /// ```
 ///
-/// The [satrs-example crate](https://egit.irs.uni-stuttgart.de/rust/fsrc-launchpad/src/branch/main/satrs-example)
+/// The [satrs-example crate](https://egit.irs.uni-stuttgart.de/rust/sat-rs/src/branch/main/examples/obsw-std)
 /// server code also includes
-/// [example code](https://egit.irs.uni-stuttgart.de/rust/sat-rs/src/branch/main/satrs-example/src/tmtc.rs#L67)
+/// [example code](https://egit.irs.uni-stuttgart.de/rust/sat-rs/src/branch/main/examples/obsw-std/src/tmtc.rs#L67)
 /// on how to use this TC server. It uses the server to receive PUS telecommands on a specific port
 /// and then forwards them to a generic CCSDS packet receiver.
 pub struct UdpTcServer<TcSender: PacketHandler<Error = SendError>, SendError> {

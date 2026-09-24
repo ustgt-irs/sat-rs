@@ -40,7 +40,7 @@ Use `cargo run -p client -- --help` to list all available commands.
 ## Adding the mini simulator application
 
 This example application features a few device handlers. The
-[`satrs-minisim`](https://egit.irs.uni-stuttgart.de/rust/sat-rs/src/branch/main/satrs-example/minisim)
+[`satrs-minisim`](https://egit.irs.uni-stuttgart.de/rust/sat-rs/src/branch/main/examples/minisim)
 can be used to simulate the physical devices managed by these device handlers.
 
 The example application will attempt communication with the mini simulator on UDP port 7303.

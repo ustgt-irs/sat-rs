@@ -5,7 +5,7 @@ This crate contains a mini-simulator based on the open-source discrete-event sim
 [nexosim](https://github.com/asynchronics/nexosim).
 
 Right now, this crate is primarily used together with the
-[`satrs-example` application](https://egit.irs.uni-stuttgart.de/rust/sat-rs/src/branch/main/satrs-example)
+[`satrs-example` application](https://egit.irs.uni-stuttgart.de/rust/sat-rs/src/branch/main/examples/obsw-std)
 to simulate the devices connected to the example application.
 
 You can simply run this application using

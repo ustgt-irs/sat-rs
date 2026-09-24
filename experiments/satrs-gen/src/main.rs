@@ -12,7 +12,7 @@ fn main() -> io::Result<()> {
     let config_str = fs::read_to_string("components.toml").expect("Unable to read file");
     let config: Value = toml::from_str(&config_str).expect("Unable to parse TOML");
 
-    let mut output = File::create("../satrs-example/src/ids.rs")?;
+    let mut output = File::create("../../examples/obsw-std/src/ids.rs")?;
 
     generate_rust_code(&config, &mut output);
     Ok(())

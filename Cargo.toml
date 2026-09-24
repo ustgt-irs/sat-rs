@@ -3,17 +3,17 @@ resolver = "2"
 members = [
     "satrs",
     "satrs-mib",
-    "satrs-example",
-    "satrs-example/types",
-    "satrs-example/client",
-    "satrs-example/minisim",
+    "examples/obsw-std",
+    "examples/types",
+    "examples/client",
+    "examples/minisim",
     "satrs-shared",
     "tmtc-utils",
-    "embedded-examples/embedded-client",
-    "embedded-examples/types",
+    "examples/embedded-client",
+    "examples/embedded-types",
 ]
 
 exclude = [
-    "embedded-examples/stm32f3-disco-rtic",
-    "embedded-examples/stm32h7-nucleo-rtic",
+    "examples/stm32f3-disco-rtic",
+    "examples/stm32h7-nucleo-rtic",
 ]

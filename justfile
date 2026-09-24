@@ -14,11 +14,11 @@ test:
 embedded: embedded-stm32h7 embedded-stm32f3
   cargo check -p satrs --target=thumbv7em-none-eabihf --no-default-features
 
-[working-directory:"embedded-examples/stm32h7-nucleo-rtic"]
+[working-directory:"examples/stm32h7-nucleo-rtic"]
 embedded-stm32h7:
   cargo build --target=thumbv7em-none-eabihf --release
 
-[working-directory:"embedded-examples/stm32f3-disco-rtic"]
+[working-directory:"examples/stm32f3-disco-rtic"]
 embedded-stm32f3:
   cargo build --target=thumbv7em-none-eabihf --release
 

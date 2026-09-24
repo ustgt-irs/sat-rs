@@ -11,7 +11,7 @@ humantime = "2"
 serde = { version = "1" }
 serde_json = "1"
 satrs = { path = "../../satrs" }
-satrs-example = { path = ".." }
+satrs-example = { path = "../obsw-std" }
 satrs-minisim = { path = "../minisim" }
 types = { path = "../types" }
 spacepackets = { version = "0.18", default-features = false }

@@ -7,7 +7,7 @@ default-run = "satrs-stm32f3-disco-rtic"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-embedded-types = { path = "../types", features = ["defmt"] }
+embedded-types = { path = "../embedded-types", features = ["defmt"] }
 cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
 cortex-m-rt = "0.7"
 defmt = "1"
