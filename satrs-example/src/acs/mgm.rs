@@ -395,9 +395,11 @@ impl MgmHandlerLis3Mdl {
             HkRequestType::OneShot => {
                 self.generate_hk(tc_id);
             }
-            HkRequestType::EnablePeriodic(duration) => {
+            HkRequestType::EnablePeriodic(opt_interval) => {
                 self.hk_helper.enabled = true;
-                self.hk_helper.frequency = duration;
+                if let Some(interval) = opt_interval {
+                    self.hk_helper.frequency = interval;
+                }
             }
             HkRequestType::DisablePeriodic => {
                 self.hk_helper.enabled = false;

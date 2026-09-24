@@ -1,4 +1,4 @@
-use anyhow::bail;
+use anyhow::{Context as _, bail};
 use arbitrary_int::u11;
 use clap::Parser as _;
 use satrs_example::config::{OBSW_SERVER_ADDR, SERVER_PORT};
@@ -117,6 +117,14 @@ enum FaultKind {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, clap::ValueEnum)]
+enum HkSelect {
+    OneShot,
+    EnablePeriodic,
+    DisablePeriodic,
+    ModifyInterval,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, clap::ValueEnum)]
 enum HealthStateSelect {
     Healthy,
     Faulty,
@@ -141,14 +149,15 @@ impl From<HealthStateSelect> for satrs::health::HealthState {
 struct MgmArgs {
     #[arg(short, long)]
     ping: bool,
+    /// Housekeeping request for the sensor data set.
+    #[arg(long, value_enum)]
+    hk: Option<HkSelect>,
+    /// Periodic HK interval. Required for `modify-interval`, optional for `enable-periodic`.
     #[arg(long)]
-    request_hk: bool,
+    hk_interval_ms: Option<u64>,
     #[arg(short, long)]
     mode: Option<DeviceModeSelect>,
     /// Inject (or clear) an SPI bus failure on the simulated device, bypassing the OBSW.
-    ///
-    /// Only takes effect for MGM0: minisim always routes this fault to the MGM0 model
-    /// regardless of which MGM the request names (a pre-existing minisim limitation).
     #[arg(long, value_enum)]
     fault: Option<FaultMode>,
     /// Whether a power cycle clears the injected SPI fault.
@@ -225,13 +234,22 @@ fn handle_mgm_command(
         let request_packet = request.to_vec();
         client.send_to(&request_packet, addr).unwrap();
     }
-    if args.request_hk {
+    if let Some(hk) = args.hk {
+        let opt_interval = args.hk_interval_ms.map(Duration::from_millis);
+        let req_type = match hk {
+            HkSelect::OneShot => types::HkRequestType::OneShot,
+            HkSelect::EnablePeriodic => types::HkRequestType::EnablePeriodic(opt_interval),
+            HkSelect::DisablePeriodic => types::HkRequestType::DisablePeriodic,
+            HkSelect::ModifyInterval => types::HkRequestType::ModifyInterval(
+                opt_interval.context("--hk-interval-ms is required for modify-interval")?,
+            ),
+        };
         let request = types::ccsds::CcsdsTcPacketOwned::new_with_request(
             SpacePacketHeader::new_from_apid(u11::new(Apid::Acs as u16)),
             TcHeader::new(target_id, types::MessageType::Hk),
             types::acs::mgm::request::Request::Hk(HkRequest {
                 id: types::acs::mgm::request::HkId::Sensor,
-                req_type: types::HkRequestType::OneShot,
+                req_type,
             }),
         );
         let sent_tc_id = CcsdsPacketIdAndPsc::new_from_ccsds_packet(&request.sp_header);
@@ -584,12 +602,6 @@ fn handle_raw_tm_packet(data: &[u8]) -> anyhow::Result<()> {
                     packet.apid(),
                     tm_header.sender_id,
                     tc_id.raw()
-                );
-            } else {
-                log::info!(
-                    "Received unsolicited TM with APID {} and from sender {:?}",
-                    packet.apid(),
-                    tm_header.sender_id,
                 );
             }
             if tm_header.message_type == MessageType::Event {
