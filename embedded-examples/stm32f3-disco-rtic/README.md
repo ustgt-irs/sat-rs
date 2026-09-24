@@ -35,7 +35,7 @@ the correct name. This is so that the config file can be updated or edited for c
 without being tracked by git.
 
 ```sh
-cp def_config.toml config.toml
+cp .cargo/config.toml.template .cargo/config.toml
 ```
 
 The configuration file will also set the target so it does not always have to be specified with
@@ -74,41 +74,33 @@ to automatically rebuild and flash your application.
 The `tasks.json` and `launch.json` files are generic and you can use them immediately by opening
 the folder in VS code or adding it to a workspace.
 
-## Commanding with Python
+## Commanding the board
 
-When the SW is running on the Discovery board, you can command the MCU via a serial interface,
-using COBS encoded PUS packets.
-
-It is recommended to use a virtual environment to do this. To set up one in the command line,
-you can use `python3 -m venv venv` on Unix systems or `py -m venv venv` on Windows systems.
-After doing this, you can check the [venv tutorial](https://docs.python.org/3/tutorial/venv.html)
-on how to activate the environment and then use the following command to install the required
-dependency:
-
-```sh
-pip install -r requirements.txt
-```
+When the software is running on the Discovery board, you can command the MCU via a serial
+interface. The telecommands are CCSDS space packets with a [`postcard`](https://docs.rs/postcard)
+serialized payload, using [COBS](https://en.wikipedia.org/wiki/Consistent_Overhead_Byte_Stuffing)
+as the packet framing format.
 
 The packets are exchanged using a dedicated serial interface. You can use any generic USB-to-UART
 converter device with the TX pin connected to the PA3 pin and the RX pin connected to the PA2 pin.
 
-A default configuration file for the python application is provided and can be used by running
+The [`embedded-client`](../embedded-client) application is used to command the board. Set the
+serial port of your USB-to-UART converter inside `embedded-client/config.toml`:
 
-```sh
-cp def_tmtc_conf.json tmtc_conf.json
+```toml
+[interface]
+serial_port = "/dev/ttyUSB0"
 ```
 
-After that, you can for example send a ping to the MCU using the following command
+Then run the client from inside the `embedded-client` directory. For example, you can send a ping
+to the MCU using
 
 ```sh
-./main.py -p /ping
+cargo run --bin stm32f3-client -- --ping
 ```
 
-You can configure the blinky frequency using
+and set the LED blink frequency to 500 ms using
 
 ```sh
-./main.py -p /change_blink_freq
+cargo run --bin stm32f3-client -- --set-led-frequency 500
 ```
-
-All these commands will package a PUS telecommand which will be sent to the MCU using the COBS
-format as the packet framing format.
