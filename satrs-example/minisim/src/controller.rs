@@ -268,7 +268,14 @@ impl SimController {
         }
     }
 
-    fn handle_mgt_request(&mut self, mgt_request: mgt::Request) {
+    fn handle_mgt_request(&mut self, frame: Vec<u8>) {
+        let mgt_request = match mgt::Request::from_frame(&frame) {
+            Ok(request) => request,
+            Err(e) => {
+                log::warn!("dropping invalid MGT frame {frame:02x?}: {e}");
+                return;
+            }
+        };
         if MGT_REQ_WIRETAPPING {
             log::info!("received MGT request: {mgt_request:?}");
         }

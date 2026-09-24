@@ -189,6 +189,9 @@ struct MgtArgs {
     torque: Option<types::acs::mgt::Dipole>,
     #[arg(long, default_value_t = 1000)]
     torque_duration_ms: u64,
+    /// Override the device's FDIR health state, for example to clear a `Faulty` state.
+    #[arg(long, value_enum)]
+    health: Option<HealthStateSelect>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, clap::Parser)]
@@ -295,6 +298,13 @@ fn handle_mgt_command(client: &UdpSocket, addr: SocketAddr, args: MgtArgs) -> an
         };
         send_mgt_request(client, addr, request);
     }
+    if let Some(health) = args.health {
+        send_mgt_request(
+            client,
+            addr,
+            Request::Health(types::HealthRequest::SetHealth(health.into())),
+        );
+    }
     Ok(())
 }
 
@@ -374,7 +384,7 @@ fn handle_mgm_command(
             SpacePacketHeader::new_from_apid(u11::new(Apid::Acs as u16)),
             TcHeader::new(target_id, types::MessageType::Health),
             types::acs::mgm::request::Request::Health(
-                types::acs::mgm::request::HealthRequest::SetHealth(health.into()),
+                types::HealthRequest::SetHealth(health.into()),
             ),
         );
         let sent_tc_id = CcsdsPacketIdAndPsc::new_from_ccsds_packet(&request.sp_header);

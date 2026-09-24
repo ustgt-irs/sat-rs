@@ -221,6 +221,13 @@ impl FromStr for DeviceMode {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum HealthRequest {
+    /// Overrides the device's autonomous FDIR health state, for example to clear a `Faulty`
+    /// state set by the handler after ground has fixed or worked around the underlying issue.
+    SetHealth(satrs::health::HealthState),
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[non_exhaustive]
 pub enum HkRequestType {
     OneShot,

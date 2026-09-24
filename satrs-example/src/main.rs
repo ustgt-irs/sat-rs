@@ -48,6 +48,7 @@ use crate::{
 mod acs;
 mod ccsds;
 mod controller;
+mod device_fdir;
 mod device_mode;
 mod eps;
 mod event_manager;
@@ -278,6 +279,7 @@ fn main() {
             report_tx: mgt_report_tx,
         },
         Duration::from_millis(1000),
+        health_table.clone(),
         mgt_event_tx,
     );
 

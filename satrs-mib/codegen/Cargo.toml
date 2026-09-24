@@ -3,7 +3,6 @@ name = "satrs-mib-codegen"
 version = "0.1.2"
 edition = "2021"
 description = "satrs-mib proc macro implementation"
-homepage = "https://egit.irs.uni-stuttgart.de/rust/sat-rs"
 repository = "https://egit.irs.uni-stuttgart.de/rust/sat-rs"
 license = "Apache-2.0"
 

@@ -1,17 +1,10 @@
 pub mod request {
-    use crate::{DeviceMode, HkRequestType, Message};
+    use crate::{DeviceMode, HealthRequest, HkRequestType, Message};
 
     #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
     pub enum ModeRequest {
         SetMode(DeviceMode),
         ReadMode,
-    }
-
-    #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
-    pub enum HealthRequest {
-        /// Overrides the device's autonomous FDIR health state, for example to clear a `Faulty`
-        /// state set by the handler after ground has fixed or worked around the underlying issue.
-        SetHealth(satrs::health::HealthState),
     }
 
     #[derive(Debug, PartialEq, Eq, Clone, Copy, serde::Serialize, serde::Deserialize)]
