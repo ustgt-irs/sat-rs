@@ -1,8 +1,0 @@
-{
-    "com_if": "tcp",
-    "tcpip_udp_ip_addr": "127.0.0.1",
-    "tcpip_udp_port": 7301,
-    "tcpip_udp_recv_max_size": 1500,
-    "tcpip_tcp_ip_addr": "127.0.0.1",
-    "tcpip_tcp_port": 7301
-}
