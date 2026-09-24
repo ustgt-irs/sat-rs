@@ -224,8 +224,8 @@ impl FromStr for DeviceMode {
 #[non_exhaustive]
 pub enum HkRequestType {
     OneShot,
-    /// Enable periodic HK generation with a specified frequency.
-    EnablePeriodic(core::time::Duration),
+    /// Enable periodic HK generation. Without an interval, the current interval is kept.
+    EnablePeriodic(Option<core::time::Duration>),
     DisablePeriodic,
     /// Modify periodic HK generation interval.
     ModifyInterval(core::time::Duration),
