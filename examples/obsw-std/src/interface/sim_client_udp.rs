@@ -176,7 +176,6 @@ impl SimClientUdp {
 #[cfg(test)]
 pub mod tests {
     use std::{
-        collections::HashMap,
         net::{SocketAddr, UdpSocket},
         sync::{
             Arc,
@@ -190,6 +189,8 @@ pub mod tests {
         ComponentId, SimCtrlReply, SimCtrlRequest, SimReply, SimRequest, SimRequestWithTime,
         eps::{PcduReply, PcduRequest},
     };
+
+    use types::pcdu::SwitchMapBinary;
 
     use super::SimClientUdp;
 
@@ -369,7 +370,7 @@ pub mod tests {
         );
 
         // We inject the reply ourselves.
-        let pcdu_reply = PcduReply::SwitchInfo(HashMap::new());
+        let pcdu_reply = PcduReply::SwitchInfo(SwitchMapBinary::default());
         server_sim_reply_tx
             .send(SimReply::from(pcdu_reply.clone()))
             .expect("sending PCDU reply failed");

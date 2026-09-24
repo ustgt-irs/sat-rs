@@ -179,14 +179,7 @@ impl SerialInterface for SerialInterfaceDummy {
         let switch_map_mut = &mut self.switch_map.borrow_mut().0;
         match pcdu_req {
             PcduRequest::SwitchDevice { switch, state } => {
-                match switch_map_mut.entry(switch) {
-                    std::collections::hash_map::Entry::Occupied(mut val) => {
-                        *val.get_mut() = state;
-                    }
-                    std::collections::hash_map::Entry::Vacant(vacant) => {
-                        vacant.insert(state);
-                    }
-                };
+                switch_map_mut.insert(switch, state);
             }
             PcduRequest::RequestSwitchInfo => {
                 let mut reply_deque_mut = self.reply_deque.borrow_mut();
