@@ -9,7 +9,7 @@ use num_enum::{IntoPrimitive, TryFromPrimitive};
 use satrs::spacepackets::CcsdsPacketIdAndPsc;
 use satrs_example::TimestampHelper;
 use satrs_minisim::{
-    SerializableSimMsgPayload, SimReply, SimRequest,
+    SimReply, SimRequestWithTime,
     eps::{PcduReply, PcduRequest},
 };
 use serde::{Deserialize, Serialize};
@@ -120,7 +120,7 @@ pub trait SerialInterface {
 
 #[derive(new)]
 pub struct SerialInterfaceToSim {
-    pub sim_request_tx: mpsc::Sender<SimRequest>,
+    pub sim_request_tx: mpsc::Sender<SimRequestWithTime>,
     pub sim_reply_rx: mpsc::Receiver<SimReply>,
 }
 
@@ -136,7 +136,7 @@ impl SerialInterface for SerialInterfaceToSim {
     fn send(&self, data: &[u8]) -> Result<(), Self::Error> {
         let request: PcduRequest = serde_json::from_slice(data).expect("expected a PCDU request");
         self.sim_request_tx
-            .send(SimRequest::new_with_epoch_time(request))
+            .send(SimRequestWithTime::new_with_epoch_time(request))
             .expect("failed to send request to simulation");
         Ok(())
     }
@@ -190,7 +190,7 @@ impl SerialInterface for SerialInterfaceDummy {
             }
             PcduRequest::RequestSwitchInfo => {
                 let mut reply_deque_mut = self.reply_deque.borrow_mut();
-                reply_deque_mut.push_back(SimReply::new(&PcduReply::SwitchInfo(
+                reply_deque_mut.push_back(SimReply::from(PcduReply::SwitchInfo(
                     switch_map_mut.clone(),
                 )));
             }
@@ -510,7 +510,10 @@ impl<ComInterface: SerialInterface> PcduHandler<ComInterface> {
     pub fn poll_and_handle_replies(&mut self) {
         if let Err(e) = self.com_interface.try_recv_replies(|reply| {
             let sim_reply: SimReply = serde_json::from_slice(reply).expect("invalid reply format");
-            let pcdu_reply = PcduReply::from_sim_message(&sim_reply).expect("invalid reply format");
+            let SimReply::Pcdu(pcdu_reply) = sim_reply else {
+                log::warn!("unexpected PCDU SIM reply: {sim_reply:?}");
+                return;
+            };
             match pcdu_reply {
                 PcduReply::SwitchInfo(switch_info) => {
                     let switch_map_wrapper =
@@ -674,8 +677,10 @@ mod tests {
             assert_eq!(reply_received_mut.len(), expected_queue_len);
             let reply_received = reply_received_mut.pop_front().unwrap();
             let sim_reply: SimReply = serde_json::from_str(&reply_received).unwrap();
-            let pcdu_reply = PcduReply::from_sim_message(&sim_reply).unwrap();
-            assert_eq!(pcdu_reply, PcduReply::SwitchInfo(expected_map));
+            assert_eq!(
+                sim_reply,
+                SimReply::Pcdu(PcduReply::SwitchInfo(expected_map))
+            );
         }
     }
 

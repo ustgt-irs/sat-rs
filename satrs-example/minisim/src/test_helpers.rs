@@ -5,14 +5,14 @@ use nexosim::{
     simulation::ExecutionError,
     time::{Deadline, MonotonicTime},
 };
-use satrs_minisim::{SimReply, SimRequest};
+use satrs_minisim::{SimReply, SimRequest, SimRequestWithTime};
 
-use crate::{controller::SimController, create_sim_controller, ThreadingModel};
+use crate::controller::{SimController, ThreadingModel};
 
 pub struct SimTestbench {
     pub sim_controller: SimController,
     pub reply_receiver: mpsc::Receiver<SimReply>,
-    pub request_sender: mpsc::Sender<SimRequest>,
+    pub request_sender: mpsc::Sender<SimRequestWithTime>,
 }
 
 impl SimTestbench {
@@ -21,7 +21,7 @@ impl SimTestbench {
         let (reply_sender, reply_receiver) = mpsc::channel();
         let t0 = MonotonicTime::EPOCH;
         let sim_ctrl =
-            create_sim_controller(ThreadingModel::Single, t0, reply_sender, request_receiver);
+            SimController::new(ThreadingModel::Single, t0, reply_sender, request_receiver);
 
         Self {
             sim_controller: sim_ctrl,
@@ -43,8 +43,24 @@ impl SimTestbench {
         }
     }
 
-    pub fn send_request(&self, request: SimRequest) -> Result<(), mpsc::SendError<SimRequest>> {
+    pub fn send_request(
+        &self,
+        request: SimRequestWithTime,
+    ) -> Result<(), mpsc::SendError<SimRequestWithTime>> {
         self.request_sender.send(request)
+    }
+
+    /// Sends the request and steps the simulation to the next scheduled event.
+    pub fn send_and_step(&mut self, request: impl Into<SimRequest>) {
+        self.send_request(SimRequestWithTime::new_with_epoch_time(request))
+            .expect("sending request failed");
+        self.handle_sim_requests_time_agnostic();
+        self.step().unwrap();
+    }
+
+    pub fn request_reply(&mut self, request: impl Into<SimRequest>) -> Option<SimReply> {
+        self.send_and_step(request);
+        self.try_receive_next_reply()
     }
 
     pub fn try_receive_next_reply(&self) -> Option<SimReply> {

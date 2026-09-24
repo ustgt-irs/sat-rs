@@ -6,13 +6,12 @@ use std::{
     time::Duration,
 };
 
-use satrs_minisim::{SimMessageProvider, SimReply, SimRequest};
+use satrs_minisim::{SimReply, SimRequestWithTime};
 
 // A UDP server which handles all TC received by a client application.
 pub struct SimUdpServer {
     socket: UdpSocket,
-    request_sender: mpsc::Sender<SimRequest>,
-    // shared_last_sender: SharedSocketAddr,
+    request_sender: mpsc::Sender<SimRequestWithTime>,
     reply_receiver: mpsc::Receiver<SimReply>,
     reply_queue: VecDeque<SimReply>,
     max_num_replies: usize,
@@ -27,7 +26,7 @@ pub struct SimUdpServer {
 impl SimUdpServer {
     pub fn new(
         local_port: u16,
-        request_sender: mpsc::Sender<SimRequest>,
+        request_sender: mpsc::Sender<SimRequestWithTime>,
         reply_receiver: mpsc::Receiver<SimReply>,
         max_num_replies: usize,
         stop_signal: Option<Arc<AtomicBool>>,
@@ -47,7 +46,7 @@ impl SimUdpServer {
         })
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn server_addr(&self) -> std::io::Result<SocketAddr> {
         self.socket.local_addr()
     }
@@ -90,7 +89,7 @@ impl SimUdpServer {
 
             self.sender_addr = Some(src);
 
-            let sim_req = SimRequest::from_raw_data(&self.req_buf[..bytes_read]);
+            let sim_req = serde_json::from_slice::<SimRequestWithTime>(&self.req_buf[..bytes_read]);
             if let Err(e) = sim_req {
                 log::warn!("received UDP request with invalid format: {}", e);
                 return processed_requests;
@@ -157,7 +156,7 @@ mod tests {
 
     use satrs_minisim::{
         eps::{PcduReply, PcduRequest},
-        SimCtrlReply, SimCtrlRequest, SimReply, SimRequest,
+        SimCtrlReply, SimCtrlRequest, SimReply, SimRequestWithTime,
     };
 
     use crate::eps::tests::get_all_off_switch_map;
@@ -202,7 +201,7 @@ mod tests {
             })
         }
 
-        pub fn send_request(&self, sim_request: &SimRequest) -> std::io::Result<usize> {
+        pub fn send_request(&self, sim_request: &SimRequestWithTime) -> std::io::Result<usize> {
             self.socket.send(
                 &serde_json::to_vec(sim_request).expect("conversion of request to vector failed"),
             )
@@ -220,7 +219,7 @@ mod tests {
     struct UdpTestbench {
         client: SimUdpTestClient,
         stop_signal: Arc<AtomicBool>,
-        request_receiver: mpsc::Receiver<SimRequest>,
+        request_receiver: mpsc::Receiver<SimRequestWithTime>,
         reply_sender: mpsc::Sender<SimReply>,
     }
 
@@ -256,7 +255,7 @@ mod tests {
             ))
         }
 
-        pub fn try_recv_request(&self) -> Result<SimRequest, mpsc::TryRecvError> {
+        pub fn try_recv_request(&self) -> Result<SimRequestWithTime, mpsc::TryRecvError> {
             self.request_receiver.try_recv()
         }
 
@@ -272,7 +271,7 @@ mod tests {
 
         delegate! {
             to self.client {
-                pub fn send_request(&self, sim_request: &SimRequest) -> std::io::Result<usize>;
+                pub fn send_request(&self, sim_request: &SimRequestWithTime) -> std::io::Result<usize>;
                 pub fn recv_sim_reply(&mut self) -> Result<SimReply, ReceptionError>;
             }
         }
@@ -316,7 +315,7 @@ mod tests {
             UdpTestbench::new(true, Some(SERVER_WAIT_TIME_MS), 10)
                 .expect("could not create testbench");
         let server_thread = std::thread::spawn(move || udp_server.run());
-        let sim_request = SimRequest::new_with_epoch_time(PcduRequest::RequestSwitchInfo);
+        let sim_request = SimRequestWithTime::new_with_epoch_time(PcduRequest::RequestSwitchInfo);
         udp_testbench
             .send_request(&sim_request)
             .expect("sending request failed");
@@ -338,10 +337,12 @@ mod tests {
                 .expect("could not create testbench");
         let server_thread = std::thread::spawn(move || udp_server.run());
         udp_testbench
-            .send_request(&SimRequest::new_with_epoch_time(SimCtrlRequest::Ping))
+            .send_request(&SimRequestWithTime::new_with_epoch_time(
+                SimCtrlRequest::Ping,
+            ))
             .expect("sending request failed");
 
-        let sim_reply = SimReply::new(&PcduReply::SwitchInfo(get_all_off_switch_map()));
+        let sim_reply = SimReply::from(PcduReply::SwitchInfo(get_all_off_switch_map()));
         udp_testbench.send_reply(&sim_reply);
 
         udp_testbench.check_next_sim_reply(&sim_reply);
@@ -362,11 +363,13 @@ mod tests {
         // Send a ping so that the server knows the address of the client.
         // Do not check that the request arrives on the receiver side, is done by other test.
         udp_testbench
-            .send_request(&SimRequest::new_with_epoch_time(SimCtrlRequest::Ping))
+            .send_request(&SimRequestWithTime::new_with_epoch_time(
+                SimCtrlRequest::Ping,
+            ))
             .expect("sending request failed");
 
         // Send a reply to the server, ensure it gets forwarded to the client.
-        let sim_reply = SimReply::new(&PcduReply::SwitchInfo(get_all_off_switch_map()));
+        let sim_reply = SimReply::from(PcduReply::SwitchInfo(get_all_off_switch_map()));
         udp_testbench.send_reply(&sim_reply);
         std::thread::sleep(Duration::from_millis(SERVER_WAIT_TIME_MS));
 
@@ -385,7 +388,7 @@ mod tests {
         let server_thread = std::thread::spawn(move || udp_server.run());
 
         // Send a reply to the server. The client is not connected, so it won't get forwarded.
-        let sim_reply = SimReply::new(&PcduReply::SwitchInfo(get_all_off_switch_map()));
+        let sim_reply = SimReply::from(PcduReply::SwitchInfo(get_all_off_switch_map()));
         udp_testbench.send_reply(&sim_reply);
         std::thread::sleep(Duration::from_millis(10));
 
@@ -393,7 +396,9 @@ mod tests {
 
         // Connect by sending a ping.
         udp_testbench
-            .send_request(&SimRequest::new_with_epoch_time(SimCtrlRequest::Ping))
+            .send_request(&SimRequestWithTime::new_with_epoch_time(
+                SimCtrlRequest::Ping,
+            ))
             .expect("sending request failed");
         std::thread::sleep(Duration::from_millis(SERVER_WAIT_TIME_MS));
 
@@ -412,7 +417,7 @@ mod tests {
         let server_thread = std::thread::spawn(move || udp_server.run());
 
         // The server only caches up to 3 replies.
-        let sim_reply = SimReply::new(&SimCtrlReply::Pong);
+        let sim_reply = SimReply::from(SimCtrlReply::Pong);
         for _ in 0..4 {
             udp_testbench.send_reply(&sim_reply);
         }
@@ -422,7 +427,9 @@ mod tests {
 
         // Connect by sending a ping.
         udp_testbench
-            .send_request(&SimRequest::new_with_epoch_time(SimCtrlRequest::Ping))
+            .send_request(&SimRequestWithTime::new_with_epoch_time(
+                SimCtrlRequest::Ping,
+            ))
             .expect("sending request failed");
         std::thread::sleep(Duration::from_millis(SERVER_WAIT_TIME_MS));
 

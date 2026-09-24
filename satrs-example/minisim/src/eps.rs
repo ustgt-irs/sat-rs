@@ -38,7 +38,7 @@ impl PcduModel {
     }
 
     pub fn send_switch_info(&mut self) {
-        let reply = SimReply::new(&PcduReply::SwitchInfo(self.switcher_map.0.clone()));
+        let reply = SimReply::from(PcduReply::SwitchInfo(self.switcher_map.0.clone()));
         self.reply_sender.send(reply).unwrap();
     }
 
@@ -75,9 +75,7 @@ pub(crate) mod tests {
     use super::*;
     use std::time::Duration;
 
-    use satrs_minisim::{
-        eps::PcduRequest, SerializableSimMsgPayload, SimComponent, SimMessageProvider, SimRequest,
-    };
+    use satrs_minisim::{eps::PcduRequest, SimRequestWithTime};
     use types::pcdu::SwitchMapBinary;
 
     use crate::test_helpers::SimTestbench;
@@ -87,18 +85,12 @@ pub(crate) mod tests {
         switch: SwitchId,
         target: SwitchStateBinary,
     ) {
-        let request = SimRequest::new_with_epoch_time(PcduRequest::SwitchDevice {
+        sim_testbench.send_and_step(PcduRequest::SwitchDevice {
             switch,
             state: target,
         });
-        sim_testbench
-            .send_request(request)
-            .expect("sending MGM switch request failed");
-        sim_testbench.handle_sim_requests_time_agnostic();
-        sim_testbench.step().unwrap();
     }
 
-    #[allow(dead_code)]
     pub(crate) fn switch_device_off(sim_testbench: &mut SimTestbench, switch: SwitchId) {
         switch_device(sim_testbench, switch, SwitchStateBinary::Off);
     }
@@ -110,24 +102,18 @@ pub(crate) mod tests {
         SwitchMapBinaryWrapper::default().0
     }
 
+    fn unwrap_switch_map(sim_reply: SimReply) -> SwitchMapBinary {
+        let SimReply::Pcdu(PcduReply::SwitchInfo(switch_map)) = sim_reply else {
+            panic!("unexpected reply {sim_reply:?}");
+        };
+        switch_map
+    }
+
     fn check_switch_state(sim_testbench: &mut SimTestbench, expected_switch_map: &SwitchMapBinary) {
-        let request = SimRequest::new_with_epoch_time(PcduRequest::RequestSwitchInfo);
-        sim_testbench
-            .send_request(request)
-            .expect("sending MGM request failed");
-        sim_testbench.handle_sim_requests_time_agnostic();
-        sim_testbench.step().unwrap();
-        let sim_reply = sim_testbench.try_receive_next_reply();
-        assert!(sim_reply.is_some());
-        let sim_reply = sim_reply.unwrap();
-        assert_eq!(sim_reply.component(), SimComponent::Pcdu);
-        let pcdu_reply = PcduReply::from_sim_message(&sim_reply)
-            .expect("failed to deserialize PCDU switch info");
-        match pcdu_reply {
-            PcduReply::SwitchInfo(switch_map) => {
-                assert_eq!(switch_map, *expected_switch_map);
-            }
-        }
+        let sim_reply = sim_testbench
+            .request_reply(PcduRequest::RequestSwitchInfo)
+            .expect("no PCDU reply received");
+        assert_eq!(unwrap_switch_map(sim_reply), *expected_switch_map);
     }
 
     fn test_pcdu_switching_single_switch(switch: SwitchId, target: SwitchStateBinary) {
@@ -141,28 +127,20 @@ pub(crate) mod tests {
     #[test]
     fn test_pcdu_switcher_request() {
         let mut sim_testbench = SimTestbench::new();
-        let request = SimRequest::new_with_epoch_time(PcduRequest::RequestSwitchInfo);
+        let request = SimRequestWithTime::new_with_epoch_time(PcduRequest::RequestSwitchInfo);
         sim_testbench
             .send_request(request)
-            .expect("sending MGM request failed");
+            .expect("sending PCDU request failed");
         sim_testbench.handle_sim_requests_time_agnostic();
         sim_testbench.step_until(Duration::from_millis(1)).unwrap();
+        assert!(sim_testbench.try_receive_next_reply().is_none());
 
-        let sim_reply = sim_testbench.try_receive_next_reply();
-        assert!(sim_reply.is_none());
-        // Reply takes 20ms
+        // The reply is delayed by SWITCH_INFO_DELAY_MS.
         sim_testbench.step_until(Duration::from_millis(25)).unwrap();
-        let sim_reply = sim_testbench.try_receive_next_reply();
-        assert!(sim_reply.is_some());
-        let sim_reply = sim_reply.unwrap();
-        assert_eq!(sim_reply.component(), SimComponent::Pcdu);
-        let pcdu_reply = PcduReply::from_sim_message(&sim_reply)
-            .expect("failed to deserialize PCDU switch info");
-        match pcdu_reply {
-            PcduReply::SwitchInfo(switch_map) => {
-                assert_eq!(switch_map, get_all_off_switch_map());
-            }
-        }
+        let sim_reply = sim_testbench
+            .try_receive_next_reply()
+            .expect("no PCDU reply received");
+        assert_eq!(unwrap_switch_map(sim_reply), get_all_off_switch_map());
     }
 
     #[test]

@@ -1,13 +1,7 @@
-use std::{f32::consts::PI, sync::mpsc, time::Duration};
+use std::{f32::consts::PI, sync::mpsc};
 
 use nexosim::model::{Context, Model};
-use satrs_minisim::{
-    acs::{
-        mgm::{MgmId, MgmReply, MgmReplyWrapper},
-        MgmSensorValuesMicroTesla, SpiFault,
-    },
-    SimReply,
-};
+use satrs_minisim::{acs::mgm, SimReply};
 use types::pcdu::SwitchStateBinary;
 
 use crate::time::current_millis;
@@ -25,24 +19,21 @@ const PHASE_Z: f32 = 0.2;
 /// An ideal sensor would sample the magnetic field at a high fixed rate. This might not be
 /// possible for a general purpose OS, but self self-sampling at a relatively high rate (20-40 ms)
 /// might still be possible and is probably sufficient for many OBSW needs.
-pub struct MagnetometerModel {
-    pub id: MgmId,
+pub struct MgmModel {
+    pub id: mgm::Id,
     pub switch_state: SwitchStateBinary,
-    #[allow(dead_code)]
-    pub periodicity: Duration,
-    pub external_mag_field: Option<MgmSensorValuesMicroTesla>,
-    pub spi_fault: SpiFault,
+    pub external_mag_field: Option<mgm::SensorValuesMicroTesla>,
+    pub spi_fault: mgm::SpiFault,
     pub reply_sender: mpsc::Sender<SimReply>,
 }
 
-impl MagnetometerModel {
-    pub fn new(mgm_id: MgmId, periodicity: Duration, reply_sender: mpsc::Sender<SimReply>) -> Self {
+impl MgmModel {
+    pub fn new(mgm_id: mgm::Id, reply_sender: mpsc::Sender<SimReply>) -> Self {
         Self {
             id: mgm_id,
             switch_state: SwitchStateBinary::Off,
-            periodicity,
             external_mag_field: None,
-            spi_fault: SpiFault::default(),
+            spi_fault: mgm::SpiFault::default(),
             reply_sender,
         }
     }
@@ -50,48 +41,48 @@ impl MagnetometerModel {
     pub async fn switch_device(&mut self, switch_state: SwitchStateBinary) {
         self.switch_state = switch_state;
         if switch_state == SwitchStateBinary::Off && self.spi_fault.cleared_by_power_cycle {
-            self.spi_fault = SpiFault::default();
+            self.spi_fault = mgm::SpiFault::default();
         }
     }
 
     /// Force (or clear) a stuck-bus SPI fault, for FDIR testing purposes.
-    pub async fn set_spi_fault(&mut self, fault: SpiFault) {
+    pub async fn set_spi_fault(&mut self, fault: mgm::SpiFault) {
         self.spi_fault = fault;
     }
 
     pub async fn send_sensor_values(&mut self, _: (), scheduler: &mut Context<Self>) {
-        let reply = MgmReplyWrapper {
-            mgm_id: self.id,
-            reply: MgmReply::new(
+        let reply = SimReply::Mgm {
+            id: self.id,
+            reply: mgm::Reply::new(
                 self.switch_state,
                 self.calculate_current_mgm_tuple(current_millis(scheduler.time())),
                 self.spi_fault.mode,
             ),
         };
         self.reply_sender
-            .send(reply.to_sim_reply())
+            .send(reply)
             .expect("sending MGM sensor values failed");
     }
 
     // Devices like magnetorquers generate a strong magnetic field which overrides the default
     // model for the measured magnetic field.
-    pub async fn apply_external_magnetic_field(&mut self, field: MgmSensorValuesMicroTesla) {
+    pub async fn apply_external_magnetic_field(&mut self, field: mgm::SensorValuesMicroTesla) {
         self.external_mag_field = Some(field);
     }
 
-    fn calculate_current_mgm_tuple(&self, time_ms: u64) -> MgmSensorValuesMicroTesla {
+    fn calculate_current_mgm_tuple(&self, time_ms: u64) -> mgm::SensorValuesMicroTesla {
         if SwitchStateBinary::On == self.switch_state {
             if let Some(ext_field) = self.external_mag_field {
                 return ext_field;
             }
             let base_sin_val = 2.0 * PI * FREQUENCY_MGM * (time_ms as f32 / 1000.0);
-            return MgmSensorValuesMicroTesla {
+            return mgm::SensorValuesMicroTesla {
                 x: AMPLITUDE_MGM_UT * (base_sin_val + PHASE_X).sin(),
                 y: AMPLITUDE_MGM_UT * (base_sin_val + PHASE_Y).sin(),
                 z: AMPLITUDE_MGM_UT * (base_sin_val + PHASE_Z).sin(),
             };
         }
-        MgmSensorValuesMicroTesla {
+        mgm::SensorValuesMicroTesla {
             x: 0.0,
             y: 0.0,
             z: 0.0,
@@ -99,20 +90,13 @@ impl MagnetometerModel {
     }
 }
 
-impl Model for MagnetometerModel {}
+impl Model for MgmModel {}
 
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
 
-    use satrs_minisim::{
-        acs::{
-            mgm::{self, MgmId, MgmReply, MgmReplyWrapper},
-            MgmRequestLis3Mdl, MgmRequestLis3MdlMgm0, MgmRequestLis3MdlMgm1, SpiFault,
-            SpiFaultMode,
-        },
-        SimComponent, SimMessageProvider, SimRequest,
-    };
+    use satrs_minisim::{acs::mgm, SimReply, SimRequest};
     use types::pcdu::{SwitchId, SwitchStateBinary};
 
     use crate::{
@@ -120,63 +104,46 @@ mod tests {
         test_helpers::SimTestbench,
     };
 
-    #[test]
-    fn test_basic_mgm_request() {
-        let mut sim_testbench = SimTestbench::new();
-        let request = SimRequest::new_with_epoch_time(MgmRequestLis3MdlMgm0(
-            MgmRequestLis3Mdl::RequestSensorData,
-        ));
-        sim_testbench
-            .send_request(request)
-            .expect("sending MGM request failed");
-        sim_testbench.handle_sim_requests_time_agnostic();
-        sim_testbench.step().unwrap();
-        let sim_reply = sim_testbench.try_receive_next_reply();
-        assert!(sim_reply.is_some());
-        let sim_reply = sim_reply.unwrap();
-        assert_eq!(sim_reply.component(), SimComponent::Mgm0Lis3Mdl);
-        let wrapper = MgmReplyWrapper::from_sim_reply(&sim_reply)
-            .expect("failed to deserialize MGM sensor values");
-        assert_eq!(wrapper.mgm_id, MgmId::Mgm0);
-        assert_eq!(wrapper.reply.switch_state, SwitchStateBinary::Off);
-        assert_eq!(wrapper.reply.sensor_values.x, 0.0);
-        assert_eq!(wrapper.reply.sensor_values.y, 0.0);
-        assert_eq!(wrapper.reply.sensor_values.z, 0.0);
+    fn request_sensor_data(sim_testbench: &mut SimTestbench, id: mgm::Id) -> mgm::Reply {
+        let sim_reply = sim_testbench
+            .request_reply(SimRequest::Mgm {
+                id,
+                request: mgm::Request::RequestSensorData,
+            })
+            .expect("no MGM reply received");
+        let SimReply::Mgm {
+            id: reply_id,
+            reply,
+        } = sim_reply
+        else {
+            panic!("unexpected reply {sim_reply:?}");
+        };
+        assert_eq!(reply_id, id);
+        reply
     }
 
     fn inject_spi_fault(sim_testbench: &mut SimTestbench, cleared_by_power_cycle: bool) {
-        let fault_request = SimRequest::new_with_epoch_time(MgmRequestLis3MdlMgm0(
-            MgmRequestLis3Mdl::SetSpiFault(SpiFault {
-                mode: SpiFaultMode::AllOnes,
+        sim_testbench.send_and_step(SimRequest::Mgm {
+            id: mgm::Id::Mgm0,
+            request: mgm::Request::SetSpiFault(mgm::SpiFault {
+                mode: mgm::SpiFaultMode::AllOnes,
                 cleared_by_power_cycle,
             }),
-        ));
-        sim_testbench
-            .send_request(fault_request)
-            .expect("sending MGM fault injection request failed");
-        sim_testbench.handle_sim_requests_time_agnostic();
-        sim_testbench.step().unwrap();
+        });
     }
 
-    fn request_mgm_reply(sim_testbench: &mut SimTestbench) -> MgmReply {
-        let data_request = SimRequest::new_with_epoch_time(MgmRequestLis3MdlMgm0(
-            MgmRequestLis3Mdl::RequestSensorData,
-        ));
-        sim_testbench
-            .send_request(data_request)
-            .expect("sending MGM request failed");
-        sim_testbench.handle_sim_requests_time_agnostic();
-        sim_testbench.step().unwrap();
-        let sim_reply = sim_testbench
-            .try_receive_next_reply()
-            .expect("no MGM reply received");
-        MgmReplyWrapper::from_sim_reply(&sim_reply)
-            .expect("failed to deserialize MGM sensor values")
-            .reply
-    }
-
-    fn is_stuck_bus_reply(reply: &MgmReply) -> bool {
+    fn is_stuck_bus_reply(reply: &mgm::Reply) -> bool {
         reply.raw.x == -1 && reply.raw.y == -1 && reply.raw.z == -1
+    }
+
+    #[test]
+    fn test_basic_mgm_request() {
+        let mut sim_testbench = SimTestbench::new();
+        let reply = request_sensor_data(&mut sim_testbench, mgm::Id::Mgm0);
+        assert_eq!(reply.switch_state, SwitchStateBinary::Off);
+        assert_eq!(reply.sensor_values.x, 0.0);
+        assert_eq!(reply.sensor_values.y, 0.0);
+        assert_eq!(reply.sensor_values.z, 0.0);
     }
 
     #[test]
@@ -185,7 +152,7 @@ mod tests {
         switch_device_on(&mut sim_testbench, SwitchId::Mgm0);
         inject_spi_fault(&mut sim_testbench, false);
 
-        let reply = request_mgm_reply(&mut sim_testbench);
+        let reply = request_sensor_data(&mut sim_testbench, mgm::Id::Mgm0);
         // Even though the device is switched on, the injected fault forces a stuck-bus reply.
         assert_eq!(reply.switch_state, SwitchStateBinary::On);
         assert!(is_stuck_bus_reply(&reply));
@@ -196,12 +163,14 @@ mod tests {
         let mut sim_testbench = SimTestbench::new();
         switch_device_on(&mut sim_testbench, SwitchId::Mgm0);
         inject_spi_fault(&mut sim_testbench, true);
-        assert!(is_stuck_bus_reply(&request_mgm_reply(&mut sim_testbench)));
+        let reply = request_sensor_data(&mut sim_testbench, mgm::Id::Mgm0);
+        assert!(is_stuck_bus_reply(&reply));
 
         switch_device_off(&mut sim_testbench, SwitchId::Mgm0);
         switch_device_on(&mut sim_testbench, SwitchId::Mgm0);
         sim_testbench.step_until(Duration::from_millis(50)).unwrap();
-        assert!(!is_stuck_bus_reply(&request_mgm_reply(&mut sim_testbench)));
+        let reply = request_sensor_data(&mut sim_testbench, mgm::Id::Mgm0);
+        assert!(!is_stuck_bus_reply(&reply));
     }
 
     #[test]
@@ -212,7 +181,7 @@ mod tests {
 
         switch_device_off(&mut sim_testbench, SwitchId::Mgm0);
         switch_device_on(&mut sim_testbench, SwitchId::Mgm0);
-        let reply = request_mgm_reply(&mut sim_testbench);
+        let reply = request_sensor_data(&mut sim_testbench, mgm::Id::Mgm0);
         assert_eq!(reply.switch_state, SwitchStateBinary::On);
         assert!(is_stuck_bus_reply(&reply));
     }
@@ -222,56 +191,21 @@ mod tests {
         let mut sim_testbench = SimTestbench::new();
         switch_device_on(&mut sim_testbench, SwitchId::Mgm0);
 
-        let mut request = SimRequest::new_with_epoch_time(MgmRequestLis3MdlMgm0(
-            MgmRequestLis3Mdl::RequestSensorData,
-        ));
-        sim_testbench
-            .send_request(request)
-            .expect("sending MGM request failed");
-        sim_testbench.handle_sim_requests_time_agnostic();
-        sim_testbench.step().unwrap();
-        let mut sim_reply_res = sim_testbench.try_receive_next_reply();
-        assert!(sim_reply_res.is_some());
-        let mut sim_reply = sim_reply_res.unwrap();
-        assert_eq!(sim_reply.component(), SimComponent::Mgm0Lis3Mdl);
-        let first_reply = MgmReplyWrapper::from_sim_reply(&sim_reply)
-            .expect("failed to deserialize MGM sensor values")
-            .reply;
+        let first_reply = request_sensor_data(&mut sim_testbench, mgm::Id::Mgm0);
         sim_testbench.step_until(Duration::from_millis(50)).unwrap();
+        let second_reply = request_sensor_data(&mut sim_testbench, mgm::Id::Mgm0);
 
-        request = SimRequest::new_with_epoch_time(MgmRequestLis3MdlMgm0(
-            MgmRequestLis3Mdl::RequestSensorData,
-        ));
-        sim_testbench
-            .send_request(request)
-            .expect("sending MGM request failed");
-        sim_testbench.handle_sim_requests_time_agnostic();
-        sim_testbench.step().unwrap();
-        sim_reply_res = sim_testbench.try_receive_next_reply();
-        assert!(sim_reply_res.is_some());
-        sim_reply = sim_reply_res.unwrap();
-
-        let second_reply = MgmReplyWrapper::from_sim_reply(&sim_reply)
-            .expect("failed to deserialize MGM sensor values")
-            .reply;
-        let x_conv_back = second_reply.raw.x as f32
-            * mgm::FIELD_LSB_PER_GAUSS_4_SENS
-            * mgm::GAUSS_TO_MICROTESLA_FACTOR as f32;
-        let y_conv_back = second_reply.raw.y as f32
-            * mgm::FIELD_LSB_PER_GAUSS_4_SENS
-            * mgm::GAUSS_TO_MICROTESLA_FACTOR as f32;
-        let z_conv_back = second_reply.raw.z as f32
-            * mgm::FIELD_LSB_PER_GAUSS_4_SENS
-            * mgm::GAUSS_TO_MICROTESLA_FACTOR as f32;
-        let diff_x = (second_reply.sensor_values.x - x_conv_back).abs();
-        assert!(diff_x < 0.01, "diff x too large: {}", diff_x);
-        let diff_y = (second_reply.sensor_values.y - y_conv_back).abs();
-        assert!(diff_y < 0.01, "diff y too large: {}", diff_y);
-        let diff_z = (second_reply.sensor_values.z - z_conv_back).abs();
-        assert!(diff_z < 0.01, "diff z too large: {}", diff_z);
-        // assert_eq!(second_reply.raw_reply, SwitchStateBinary::On);
+        let to_microtesla = |raw: i16| {
+            raw as f32 * mgm::FIELD_LSB_PER_GAUSS_4_SENS * mgm::GAUSS_TO_MICROTESLA_FACTOR as f32
+        };
+        let values = second_reply.sensor_values;
+        let raw = second_reply.raw;
+        for (value, raw) in [(values.x, raw.x), (values.y, raw.y), (values.z, raw.z)] {
+            let diff = (value - to_microtesla(raw)).abs();
+            assert!(diff < 0.01, "raw value conversion diff too large: {diff}");
+        }
         // Check that the values are changing.
-        assert!(first_reply != second_reply);
+        assert_ne!(first_reply, second_reply);
     }
 
     #[test]
@@ -279,37 +213,9 @@ mod tests {
         let mut sim_testbench = SimTestbench::new();
         switch_device_on(&mut sim_testbench, SwitchId::Mgm1);
 
-        for request in [
-            SimRequest::new_with_epoch_time(MgmRequestLis3MdlMgm0(
-                MgmRequestLis3Mdl::RequestSensorData,
-            )),
-            SimRequest::new_with_epoch_time(MgmRequestLis3MdlMgm1(
-                MgmRequestLis3Mdl::RequestSensorData,
-            )),
-        ] {
-            sim_testbench
-                .send_request(request)
-                .expect("sending MGM request failed");
-        }
-        sim_testbench.handle_sim_requests_time_agnostic();
-        sim_testbench.step().unwrap();
-
-        let sim_reply = sim_testbench
-            .try_receive_next_reply()
-            .expect("no MGM0 reply received");
-        assert_eq!(sim_reply.component(), SimComponent::Mgm0Lis3Mdl);
-        let mgm_0_reply = MgmReplyWrapper::from_sim_reply(&sim_reply)
-            .expect("failed to deserialize MGM0 sensor values");
-        assert_eq!(mgm_0_reply.mgm_id, MgmId::Mgm0);
-        assert_eq!(mgm_0_reply.reply.switch_state, SwitchStateBinary::Off);
-
-        let sim_reply = sim_testbench
-            .try_receive_next_reply()
-            .expect("no MGM1 reply received");
-        assert_eq!(sim_reply.component(), SimComponent::Mgm1Lis3Mdl);
-        let mgm_1_reply = MgmReplyWrapper::from_sim_reply(&sim_reply)
-            .expect("failed to deserialize MGM1 sensor values");
-        assert_eq!(mgm_1_reply.mgm_id, MgmId::Mgm1);
-        assert_eq!(mgm_1_reply.reply.switch_state, SwitchStateBinary::On);
+        let mgm_0_reply = request_sensor_data(&mut sim_testbench, mgm::Id::Mgm0);
+        assert_eq!(mgm_0_reply.switch_state, SwitchStateBinary::Off);
+        let mgm_1_reply = request_sensor_data(&mut sim_testbench, mgm::Id::Mgm1);
+        assert_eq!(mgm_1_reply.switch_state, SwitchStateBinary::On);
     }
 }
