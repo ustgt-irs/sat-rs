@@ -2,11 +2,11 @@ use satrs::fdir::{FaultCounterStd, FaultResponse, RecoveryEvent, RecoveryFdir};
 use satrs::health::HealthTableMapSync;
 use satrs::spacepackets::CcsdsPacketIdAndPsc;
 use satrs_example::{HkHelperSingleSet, TimestampHelper, TmtcQueues};
-use satrs_minisim::acs::MgmRequestLis3Mdl;
-use satrs_minisim::acs::lis3mdl::{
-    FIELD_LSB_PER_GAUSS_4_SENS, GAUSS_TO_MICROTESLA_FACTOR, MgmLis3MdlReply, MgmLis3RawValues,
+use satrs_minisim::acs::mgm::{
+    FIELD_LSB_PER_GAUSS_4_SENS, GAUSS_TO_MICROTESLA_FACTOR, MgmReplyWrapper, RawValues,
 };
-use satrs_minisim::{SerializableSimMsgPayload, SimReply, SimRequest};
+use satrs_minisim::acs::{MgmRequestLis3Mdl, MgmRequestLis3MdlMgm0, MgmRequestLis3MdlMgm1};
+use satrs_minisim::{SimReply, SimRequest};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -76,7 +76,7 @@ impl MgmId {
 
 #[derive(Default)]
 pub struct SpiDummyInterface {
-    pub dummy_values: MgmLis3RawValues,
+    pub dummy_values: RawValues,
 }
 
 impl SpiDummyInterface {
@@ -90,7 +90,7 @@ impl SpiDummyInterface {
 #[derive(Default)]
 pub struct TestSpiInterface {
     pub call_count: u32,
-    pub next_mgm_data: MgmLis3RawValues,
+    pub next_mgm_data: RawValues,
 }
 
 impl TestSpiInterface {
@@ -103,6 +103,7 @@ impl TestSpiInterface {
 }
 
 pub struct SpiSimInterface {
+    pub id: MgmId,
     pub sim_request_tx: mpsc::Sender<SimRequest>,
     pub sim_reply_rx: mpsc::Receiver<SimReply>,
 }
@@ -111,16 +112,18 @@ impl SpiSimInterface {
     // Right now, we only support requesting sensor data and not configuration of the sensor.
     fn transfer(&mut self, _tx: &[u8], rx: &mut [u8]) {
         let mgm_sensor_request = MgmRequestLis3Mdl::RequestSensorData;
-        if let Err(e) = self
-            .sim_request_tx
-            .send(SimRequest::new_with_epoch_time(mgm_sensor_request))
-        {
+        let sim_request = match self.id {
+            MgmId::_0 => SimRequest::new_with_epoch_time(MgmRequestLis3MdlMgm0(mgm_sensor_request)),
+            MgmId::_1 => SimRequest::new_with_epoch_time(MgmRequestLis3MdlMgm1(mgm_sensor_request)),
+        };
+        if let Err(e) = self.sim_request_tx.send(sim_request) {
             log::error!("failed to send MGM LIS3 request: {e}");
         }
         match self.sim_reply_rx.recv_timeout(Duration::from_millis(50)) {
             Ok(sim_reply) => {
-                let sim_reply_lis3 = MgmLis3MdlReply::from_sim_message(&sim_reply)
-                    .expect("failed to parse LIS3 reply");
+                let sim_reply_lis3 = MgmReplyWrapper::from_sim_reply(&sim_reply)
+                    .expect("failed to parse LIS3 reply")
+                    .reply;
                 rx[X_LOWBYTE_IDX..X_LOWBYTE_IDX + 2]
                     .copy_from_slice(&sim_reply_lis3.raw.x.to_le_bytes());
                 rx[Y_LOWBYTE_IDX..Y_LOWBYTE_IDX + 2]
@@ -644,7 +647,7 @@ mod tests {
     use arbitrary_int::u11;
     use satrs::health::{HealthState, HealthTableProvider};
     use satrs::spacepackets::SpacePacketHeader;
-    use satrs_minisim::acs::lis3mdl::MgmLis3RawValues;
+    use satrs_minisim::acs::mgm::RawValues;
     use types::{
         Apid, ComponentId, TcHeader,
         acs::mgm::request::HkRequest,
@@ -763,7 +766,7 @@ mod tests {
         }
 
         pub fn inject_stuck_bus(&mut self) {
-            self.test_spi_interface().next_mgm_data = MgmLis3RawValues {
+            self.test_spi_interface().next_mgm_data = RawValues {
                 x: -1,
                 y: -1,
                 z: -1,
@@ -904,7 +907,7 @@ mod tests {
     #[test]
     fn test_normal_handler_mgm_set_conversion() {
         let mut testbench = MgmTestbench::new();
-        let raw_values = MgmLis3RawValues {
+        let raw_values = RawValues {
             x: 1000,
             y: -1000,
             z: 1000,
@@ -1057,7 +1060,7 @@ mod tests {
     fn test_spi_fault_below_threshold_stays_healthy() {
         let mut testbench = MgmTestbench::new();
         testbench.switch_to_normal();
-        testbench.test_spi_interface().next_mgm_data = MgmLis3RawValues {
+        testbench.test_spi_interface().next_mgm_data = RawValues {
             x: -1,
             y: -1,
             z: -1,
@@ -1098,7 +1101,7 @@ mod tests {
         testbench.drain_switch_requests();
         testbench.mode_report_rx.try_iter().for_each(drop);
         testbench.exceed_spi_fault_threshold();
-        testbench.test_spi_interface().next_mgm_data = MgmLis3RawValues::default();
+        testbench.test_spi_interface().next_mgm_data = RawValues::default();
         let call_count = testbench.test_spi_interface().call_count;
 
         testbench.complete_power_cycle();
@@ -1271,7 +1274,7 @@ mod tests {
         testbench.drain_events();
         testbench.mode_report_rx.try_iter().for_each(drop);
         testbench.exceed_spi_fault_threshold();
-        testbench.test_spi_interface().next_mgm_data = MgmLis3RawValues::default();
+        testbench.test_spi_interface().next_mgm_data = RawValues::default();
 
         // The switch never turns off. Every failed power cycle costs a recovery attempt.
         for _ in 0..RECOVERY_THRESHOLD {
@@ -1309,7 +1312,7 @@ mod tests {
         let mut testbench = MgmTestbench::new();
         testbench.switch_to_normal();
         testbench.exceed_spi_fault_threshold();
-        testbench.test_spi_interface().next_mgm_data = MgmLis3RawValues::default();
+        testbench.test_spi_interface().next_mgm_data = RawValues::default();
         testbench
             .tc_tx
             .send(create_request_tc(
@@ -1374,7 +1377,7 @@ mod tests {
         testbench
             .health_table
             .set_health(ComponentId::AcsMgm0.into(), HealthState::ExternalControl);
-        testbench.test_spi_interface().next_mgm_data = MgmLis3RawValues {
+        testbench.test_spi_interface().next_mgm_data = RawValues {
             x: -1,
             y: -1,
             z: -1,
@@ -1393,7 +1396,7 @@ mod tests {
     fn test_recovering_from_spi_fault_clears_invalid_data_flag() {
         let mut testbench = MgmTestbench::new();
         testbench.switch_to_normal();
-        testbench.test_spi_interface().next_mgm_data = MgmLis3RawValues {
+        testbench.test_spi_interface().next_mgm_data = RawValues {
             x: -1,
             y: -1,
             z: -1,
@@ -1402,7 +1405,7 @@ mod tests {
         assert!(!testbench.handler.shared_mgm_set.lock().unwrap().valid);
 
         // Bus recovers before the threshold is exceeded.
-        testbench.test_spi_interface().next_mgm_data = MgmLis3RawValues::default();
+        testbench.test_spi_interface().next_mgm_data = RawValues::default();
         testbench.handler.periodic_operation();
         assert_eq!(
             testbench.health_table.health(ComponentId::AcsMgm0.into()),
