@@ -181,10 +181,12 @@ fn main() {
                 .add_reply_recipient(satrs_minisim::SimComponent::Mgm1Lis3Mdl, mgm_1_sim_reply_tx);
             (
                 mgm::SpiCommunication::Sim(mgm::SpiSimInterface {
+                    id: mgm::MgmId::_0,
                     sim_request_tx: sim_request_tx.clone(),
                     sim_reply_rx: mgm_0_sim_reply_rx,
                 }),
                 mgm::SpiCommunication::Sim(mgm::SpiSimInterface {
+                    id: mgm::MgmId::_1,
                     sim_request_tx: sim_request_tx.clone(),
                     sim_reply_rx: mgm_1_sim_reply_rx,
                 }),

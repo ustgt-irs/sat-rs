@@ -58,10 +58,12 @@ impl PcduModel {
             SwitchId::Mgm0 => {
                 self.mgm_0_switch.send(switch_and_target_state.1).await;
             }
+            SwitchId::Mgm1 => {
+                self.mgm_1_switch.send(switch_and_target_state.1).await;
+            }
             SwitchId::Mgt => {
                 self.mgt_switch.send(switch_and_target_state.1).await;
             }
-            SwitchId::Mgm1 => todo!(),
         }
     }
 }

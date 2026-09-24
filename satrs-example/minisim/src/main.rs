@@ -1,8 +1,9 @@
-use acs::{MagnetometerModel, MagnetorquerModel};
+use acs::{mgm::MagnetometerModel, mgt::MagnetorquerModel};
 use controller::{ModelAddrWrapper, SimController};
 use eps::PcduModel;
 use nexosim::simulation::{Mailbox, SimInit};
 use nexosim::time::{MonotonicTime, SystemClock};
+use satrs_minisim::acs::mgm::MgmId;
 use satrs_minisim::udp::SIM_CTRL_PORT;
 use satrs_minisim::{SimReply, SimRequest};
 use std::sync::mpsc;
@@ -32,9 +33,9 @@ fn create_sim_controller(
 ) -> SimController {
     // Instantiate models and their mailboxes.
     let mgm_0_model =
-        MagnetometerModel::new_for_lis3mdl(Duration::from_millis(50), reply_sender.clone());
+        MagnetometerModel::new(MgmId::Mgm0, Duration::from_millis(50), reply_sender.clone());
     let mgm_1_model =
-        MagnetometerModel::new_for_lis3mdl(Duration::from_millis(50), reply_sender.clone());
+        MagnetometerModel::new(MgmId::Mgm1, Duration::from_millis(50), reply_sender.clone());
 
     let mgm_0_mailbox = Mailbox::new();
     let mgm_0_addr = mgm_0_mailbox.address();

@@ -105,6 +105,16 @@ impl SimReply {
             },
         }
     }
+
+    /// For payloads where the target is only known at runtime.
+    pub fn new_with_target<T: Serialize>(target: SimComponent, reply: &T) -> Self {
+        Self {
+            inner: SimMessage {
+                target,
+                payload: serde_json::to_string(reply).unwrap(),
+            },
+        }
+    }
 }
 
 impl SimMessageProvider for SimReply {
@@ -201,10 +211,6 @@ pub mod acs {
 
     use super::*;
 
-    pub trait MgmReplyProvider: Send + 'static {
-        fn create_mgm_reply(common: MgmReplyCommon, fault_mode: SpiFaultMode) -> SimReply;
-    }
-
     /// Fault mode injected on the simulated SPI bus, independent of the switch state.
     ///
     /// Models the classic symptom of a stuck SPI bus: an undriven MISO line commonly reads
@@ -233,8 +239,18 @@ pub mod acs {
         SetSpiFault(SpiFault),
     }
 
-    impl SerializableSimMsgPayload<SimRequest> for MgmRequestLis3Mdl {
+    #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+    pub struct MgmRequestLis3MdlMgm0(pub MgmRequestLis3Mdl);
+
+    impl SerializableSimMsgPayload<SimRequest> for MgmRequestLis3MdlMgm0 {
         const TARGET: SimComponent = SimComponent::Mgm0Lis3Mdl;
+    }
+
+    #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+    pub struct MgmRequestLis3MdlMgm1(pub MgmRequestLis3Mdl);
+
+    impl SerializableSimMsgPayload<SimRequest> for MgmRequestLis3MdlMgm1 {
+        const TARGET: SimComponent = SimComponent::Mgm1Lis3Mdl;
     }
 
     // Normally, small magnetometers generate their output as a signed 16 bit raw format or something
@@ -248,10 +264,7 @@ pub mod acs {
     }
 
     #[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
-    pub struct MgmReplyCommon {
-        pub switch_state: SwitchStateBinary,
-        pub sensor_values: MgmSensorValuesMicroTesla,
-    }
+    pub struct MgmReplyCommon {}
 
     pub const MGT_GEN_MAGNETIC_FIELD: MgmSensorValuesMicroTesla = MgmSensorValuesMicroTesla {
         x: 30.0,
@@ -261,7 +274,9 @@ pub mod acs {
     pub const ALL_ONES_SENSOR_VAL: i16 = 0xffff_u16 as i16;
     pub const ALL_ZEROS_SENSOR_VAL: i16 = 0;
 
-    pub mod lis3mdl {
+    /// MGM module strongly based on the LIS3MDL device.
+    pub mod mgm {
+
         use super::*;
 
         // Field data register scaling
@@ -272,27 +287,70 @@ pub mod acs {
         pub const FIELD_LSB_PER_GAUSS_16_SENS: f32 = 1.0 / 1711.0;
 
         #[derive(Default, Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
-        pub struct MgmLis3RawValues {
+        pub struct RawValues {
             pub x: i16,
             pub y: i16,
             pub z: i16,
         }
 
         #[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
-        pub struct MgmLis3MdlReply {
-            pub common: MgmReplyCommon,
+        pub struct MgmReply {
+            pub switch_state: SwitchStateBinary,
+            pub sensor_values: MgmSensorValuesMicroTesla,
             // Raw sensor values which are transmitted by the LIS3 device in little-endian
             // order.
-            pub raw: MgmLis3RawValues,
+            pub raw: RawValues,
         }
 
-        impl MgmLis3MdlReply {
-            pub fn new(common: MgmReplyCommon, fault_mode: SpiFaultMode) -> Self {
+        #[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
+        pub enum MgmId {
+            Mgm0,
+            Mgm1,
+        }
+
+        impl MgmId {
+            pub const fn sim_component(&self) -> SimComponent {
+                match self {
+                    MgmId::Mgm0 => SimComponent::Mgm0Lis3Mdl,
+                    MgmId::Mgm1 => SimComponent::Mgm1Lis3Mdl,
+                }
+            }
+        }
+
+        /// Does not implement [SerializableSimMsgPayload] because the target depends on the
+        /// MGM ID, which is only known at runtime.
+        #[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
+        pub struct MgmReplyWrapper {
+            pub mgm_id: MgmId,
+            pub reply: MgmReply,
+        }
+
+        impl MgmReplyWrapper {
+            pub fn to_sim_reply(&self) -> SimReply {
+                SimReply::new_with_target(self.mgm_id.sim_component(), self)
+            }
+
+            pub fn from_sim_reply(sim_reply: &SimReply) -> Result<Self, SimReplyError> {
+                let wrapper: Self = serde_json::from_str(sim_reply.payload())?;
+                if wrapper.mgm_id.sim_component() != sim_reply.component() {
+                    return Err(SimMessageError::TargetRequestMissmatch(sim_reply.clone()));
+                }
+                Ok(wrapper)
+            }
+        }
+
+        impl MgmReply {
+            pub fn new(
+                switch_state: SwitchStateBinary,
+                sensor_values: MgmSensorValuesMicroTesla,
+                fault_mode: SpiFaultMode,
+            ) -> Self {
                 match fault_mode {
                     SpiFaultMode::AllZeros => {
                         return Self {
-                            common,
-                            raw: MgmLis3RawValues {
+                            switch_state,
+                            sensor_values,
+                            raw: RawValues {
                                 x: ALL_ZEROS_SENSOR_VAL,
                                 y: ALL_ZEROS_SENSOR_VAL,
                                 z: ALL_ZEROS_SENSOR_VAL,
@@ -301,8 +359,9 @@ pub mod acs {
                     }
                     SpiFaultMode::AllOnes => {
                         return Self {
-                            common,
-                            raw: MgmLis3RawValues {
+                            switch_state,
+                            sensor_values,
+                            raw: RawValues {
                                 x: ALL_ONES_SENSOR_VAL,
                                 y: ALL_ONES_SENSOR_VAL,
                                 z: ALL_ONES_SENSOR_VAL,
@@ -311,10 +370,11 @@ pub mod acs {
                     }
                     SpiFaultMode::None => (),
                 }
-                match common.switch_state {
+                match switch_state {
                     SwitchStateBinary::Off => Self {
-                        common,
-                        raw: MgmLis3RawValues {
+                        switch_state,
+                        sensor_values,
+                        raw: RawValues {
                             x: ALL_ONES_SENSOR_VAL,
                             y: ALL_ONES_SENSOR_VAL,
                             z: ALL_ONES_SENSOR_VAL,
@@ -322,13 +382,13 @@ pub mod acs {
                     },
                     SwitchStateBinary::On => {
                         let mut raw_reply: [u8; 7] = [0; 7];
-                        let raw_x: i16 = (common.sensor_values.x
+                        let raw_x: i16 = (sensor_values.x
                             / (GAUSS_TO_MICROTESLA_FACTOR as f32 * FIELD_LSB_PER_GAUSS_4_SENS))
                             .round() as i16;
-                        let raw_y: i16 = (common.sensor_values.y
+                        let raw_y: i16 = (sensor_values.y
                             / (GAUSS_TO_MICROTESLA_FACTOR as f32 * FIELD_LSB_PER_GAUSS_4_SENS))
                             .round() as i16;
-                        let raw_z: i16 = (common.sensor_values.z
+                        let raw_z: i16 = (sensor_values.z
                             / (GAUSS_TO_MICROTESLA_FACTOR as f32 * FIELD_LSB_PER_GAUSS_4_SENS))
                             .round() as i16;
                         // The first byte is a dummy byte.
@@ -336,8 +396,9 @@ pub mod acs {
                         raw_reply[3..5].copy_from_slice(&raw_y.to_be_bytes());
                         raw_reply[5..7].copy_from_slice(&raw_z.to_be_bytes());
                         Self {
-                            common,
-                            raw: MgmLis3RawValues {
+                            switch_state,
+                            sensor_values,
+                            raw: RawValues {
                                 x: raw_x,
                                 y: raw_y,
                                 z: raw_z,
@@ -345,16 +406,6 @@ pub mod acs {
                         }
                     }
                 }
-            }
-        }
-
-        impl SerializableSimMsgPayload<SimReply> for MgmLis3MdlReply {
-            const TARGET: SimComponent = SimComponent::Mgm0Lis3Mdl;
-        }
-
-        impl MgmReplyProvider for MgmLis3MdlReply {
-            fn create_mgm_reply(common: MgmReplyCommon, fault_mode: SpiFaultMode) -> SimReply {
-                SimReply::new(&Self::new(common, fault_mode))
             }
         }
     }

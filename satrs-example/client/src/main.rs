@@ -4,7 +4,8 @@ use clap::Parser as _;
 use satrs_example::config::{OBSW_SERVER_ADDR, SERVER_PORT};
 use satrs_minisim::{
     SerializableSimMsgPayload, SimComponent, SimCtrlReply, SimCtrlRequest, SimMessageProvider,
-    SimReply, SimRequest, acs, acs::MgmRequestLis3Mdl, acs::SpiFault, udp::SIM_CTRL_PORT,
+    SimReply, SimRequest, acs, acs::MgmRequestLis3Mdl, acs::MgmRequestLis3MdlMgm0,
+    acs::MgmRequestLis3MdlMgm1, acs::SpiFault, udp::SIM_CTRL_PORT,
 };
 use spacepackets::{CcsdsPacketIdAndPsc, SpacePacketHeader};
 use std::{
@@ -202,13 +203,13 @@ fn handle_mgm_command(
     args: MgmArgs,
 ) -> anyhow::Result<()> {
     if let Some(mode) = args.fault {
-        if target_id != types::ComponentId::AcsMgm0 {
-            bail!("SPI fault injection is only supported for MGM0 right now (minisim limitation)");
-        }
-        inject_mgm_failure(SpiFault {
-            mode: mode.into(),
-            cleared_by_power_cycle: args.fault_kind == FaultKind::Transient,
-        })?;
+        inject_mgm_failure(
+            target_id,
+            SpiFault {
+                mode: mode.into(),
+                cleared_by_power_cycle: args.fault_kind == FaultKind::Transient,
+            },
+        )?;
     }
     if args.ping {
         let request = types::ccsds::CcsdsTcPacketOwned::new_with_request(
@@ -494,12 +495,12 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Injects the given SPI fault directly into minisim's MGM0 model, bypassing the OBSW.
+/// Injects the given SPI fault directly into minisim's MGM model, bypassing the OBSW.
 ///
 /// Confirms the simulator is actually reachable first (same ping/pong check the OBSW's own
 /// internal sim client does, see `SimClientUdp::attempt_connection`), since a fire-and-forget
 /// UDP send would otherwise silently do nothing if minisim is not running.
-fn inject_mgm_failure(fault: SpiFault) -> anyhow::Result<()> {
+fn inject_mgm_failure(target_id: types::ComponentId, fault: SpiFault) -> anyhow::Result<()> {
     let sim_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), SIM_CTRL_PORT);
     let sim_socket = UdpSocket::bind("127.0.0.1:0")?;
     sim_socket.set_read_timeout(Some(Duration::from_millis(200)))?;
@@ -531,9 +532,18 @@ fn inject_mgm_failure(fault: SpiFault) -> anyhow::Result<()> {
         Err(e) => return Err(e.into()),
     }
 
-    let request = SimRequest::new_with_epoch_time(MgmRequestLis3Mdl::SetSpiFault(fault));
+    let fault_request = MgmRequestLis3Mdl::SetSpiFault(fault);
+    let request = match target_id {
+        types::ComponentId::AcsMgm0 => {
+            SimRequest::new_with_epoch_time(MgmRequestLis3MdlMgm0(fault_request))
+        }
+        types::ComponentId::AcsMgm1 => {
+            SimRequest::new_with_epoch_time(MgmRequestLis3MdlMgm1(fault_request))
+        }
+        _ => bail!("SPI fault injection is not supported for {target_id:?}"),
+    };
     sim_socket.send_to(&serde_json::to_vec(&request)?, sim_addr)?;
-    log::info!("injected SPI fault {fault:?} into minisim MGM0");
+    log::info!("injected SPI fault {fault:?} into minisim {target_id:?}");
     Ok(())
 }
 
