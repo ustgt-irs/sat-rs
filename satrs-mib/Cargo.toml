@@ -6,7 +6,7 @@ rust-version = "1.61"
 description = """
 Helper crate of the sat-rs framework to build a mission information base (MIB) from the
 On-Board Software (OBSW) code directly."""
-homepage = "https://robamu.github.io/sat-rs/book/"
+homepage = "https://documentation.irs.uni-stuttgart.de/projects/sat-rs/"
 repository = "https://egit.irs.uni-stuttgart.de/rust/sat-rs"
 license = "Apache-2.0"
 keywords = ["no-std", "space", "aerospace"]

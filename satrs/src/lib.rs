@@ -1,6 +1,6 @@
 //! # sat-rs: A helper library to build on-board software for remote systems
 //!
-//! The [satrs-book](https://robamu.github.io/sat-rs/book/) contains
+//! The [satrs-book](https://documentation.irs.uni-stuttgart.de/projects/sat-rs/book/) contains
 //! high-level information about this library.
 #![no_std]
 #![cfg_attr(docsrs, feature(doc_cfg))]

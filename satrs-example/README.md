@@ -5,7 +5,7 @@ This crate contains an example application which simulates an on-board software.
 It uses various components provided by the sat-rs framework to do this. As such, it shows how
 a more complex real on-board software could be built from these components. It is recommended to
 read the dedicated
-[example chapters](https://robamu.github.io/sat-rs/book/example.html) inside
+[example chapters](https://documentation.irs.uni-stuttgart.de/projects/sat-rs/book/example.html) inside
 the sat-rs book.
 
 The application opens a UDP and a TCP server on port 7301 to receive telecommands.

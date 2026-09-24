@@ -3,7 +3,7 @@
 //! This is a legacy module. It is recommended to use [super::event_man] instead.
 //!
 //! It is recommended to read the
-//! [sat-rs book chapter](https://robamu.github.io/sat-rs/book/events.html)
+//! [sat-rs book chapter](https://documentation.irs.uni-stuttgart.de/projects/sat-rs/book/events.html)
 //! about events first.
 //!
 //! This module provides components to perform event routing. The most important component for this
