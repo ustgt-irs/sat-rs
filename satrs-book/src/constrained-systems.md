@@ -4,15 +4,15 @@ Software for space systems oftentimes has different requirements than the softwa
 systems or servers. Currently, most space systems are considered embedded systems.
 
 For these systems, the computation power and the available memory are important resources
-which are also constrained. This might make completeley heap based memory management schemes which
-are oftentimes used on host and server based systems unfeasable. Still, completely forbidding
-heap allocations might make software development unnecessarilly difficult, especially in a
+which are also constrained. This might make completely heap based memory management schemes which
+are oftentimes used on host and server based systems infeasible. Still, completely forbidding
+heap allocations might make software development unnecessarily difficult, especially in a
 time where the OBSW might be running on Linux based systems with hundreds of MBs of RAM.
 
 A useful pattern commonly used in space systems is to limit heap allocations to program
 initialization time and avoid frequent run-time allocations. This prevents issues like
 running out of memory (something even Rust can not protect from) or heap fragmentation on systems
-without a MMU.
+without an MMU.
 
 # Using an embedded allocator
 
@@ -22,7 +22,7 @@ which allows run-time tracking of the memory usage.
 
 # Using pre-allocated pool structures
 
-A candidate for heap allocations is the TMTC and  handling. TC, TMs and IPC data are all
+A candidate for heap allocations is the TMTC handling. TC, TMs and IPC data are all
 candidates where the data size might vary greatly. The regular solution for host systems
 might be to send around this data as a `Vec<u8>` until it is dropped. `sat-rs` provides
 another solution to avoid run-time allocations by offering pre-allocated static
@@ -33,8 +33,8 @@ For example, a very small telecommand (TC) pool might look like this:
 
 The core of the pool abstractions is the
 [PoolProvider trait](https://docs.rs/satrs/latest/satrs/pool/trait.PoolProvider.html).
-This trait specifies the general API a pool structure should have without making assumption
-of how the data is stored.
+This trait specifies the general API a pool structure should have without making assumptions
+about how the data is stored.
 
 This trait is implemented by a static memory pool implementation.
 The code to generate this static pool would look like this:

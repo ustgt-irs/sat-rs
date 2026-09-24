@@ -87,7 +87,7 @@ The most important components of the TMTC infrastructure include the following c
 
 - A TC source component which demultiplexes and routes telecommands based on parameters like
   packet APID and a target ID which is part of the packet payload.
-- A TM sink sink component which is the target of all sent telemetry and sends it to downlink
+- A TM sink component which is the target of all sent telemetry and sends it to downlink
    handlers like the UDP and TCP server.
 
 You can read the [Communications chapter](./communication.md) for more
@@ -114,7 +114,7 @@ client and any connected TCP client.
 
 ### Application Group
 
-The application group contain some components you might also find in a real satellite software.
+The application group contains some components you might also find in a real satellite software.
 This includes an AOCS stack with various device handlers and system level objects.
 
 ### Shared components and functional interfaces

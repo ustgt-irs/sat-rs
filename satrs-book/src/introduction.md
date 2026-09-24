@@ -4,8 +4,8 @@ The sat-rs book
 This book is the primary information resource for the [sat-rs library](https://egit.irs.uni-stuttgart.de/rust/sat-rs)
 in addition to the regular API documentation. It contains the following resources:
 
-1. Architecture informations and consideration which would exceeds the scope of the regular API.
-2. General information on how to build on-board Software and how `sat-rs` can help to fulfill
+1. Architecture information and considerations which would exceed the scope of the regular API.
+2. General information on how to build on-board software and how `sat-rs` can help to fulfill
    the unique requirements of writing software for remote systems.
 
 # Introduction
@@ -20,7 +20,7 @@ through the 2 missions [FLP](https://www.irs.uni-stuttgart.de/en/research/satell
 and [EIVE](https://www.irs.uni-stuttgart.de/en/research/satellitetechnology-and-instruments/smallsatelliteprogram/EIVE/).
 
 However, `sat-rs` has a significantly reduced scope compared to those frameworks. Rust provides
-a great ecosystem and a powerful standard library which reduced the need of large and complex
+a great ecosystem and a powerful standard library which reduces the need for large and complex
 frameworks.
 
 # Getting started with the example
@@ -28,7 +28,7 @@ frameworks.
 The [`satrs-example`](https://egit.irs.uni-stuttgart.de/rust/sat-rs/src/branch/main/satrs-example)
 provides various practical usage examples of the `sat-rs` framework. If you are more interested in
 the practical application of `sat-rs` inside an application, it is recommended to have a look at
-the example application. The [`satrs-minisim`](https://egit.irs.uni-stuttgart.de/rust/sat-rs/src/branch/main/satrs-minisim)
+the example application. The [`satrs-minisim`](https://egit.irs.uni-stuttgart.de/rust/sat-rs/src/branch/main/satrs-example/minisim)
 application complements the example application and can be used to simulate some physical devices
 for the `satrs-example` device handlers.
 
@@ -44,5 +44,5 @@ Currently this library has the following flight heritage:
   of the experiment [here](https://egit.irs.uni-stuttgart.de/rust/ops-sat-rs).
 - Development and use of a sat-rs-based [demonstration on-board software](https://egit.irs.uni-stuttgart.de/rust/eurosim-obsw)
   alongside a Flight System Simulator in the context of a
-  [Bachelors Thesis](https://www.researchgate.net/publication/380785984_Design_and_Development_of_a_Hardware-in-the-Loop_EuroSim_Demonstrator)
+  [Bachelor's thesis](https://www.researchgate.net/publication/380785984_Design_and_Development_of_a_Hardware-in-the-Loop_EuroSim_Demonstrator)
   at [Airbus Netherlands](https://www.airbusdefenceandspacenetherlands.nl/).

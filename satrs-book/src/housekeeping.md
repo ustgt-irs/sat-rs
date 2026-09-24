@@ -8,21 +8,21 @@ An example for this could be temperature or attitude data. Data like this is com
 referred to as housekeeping data, and is usually one of the most important and most resource heavy
 data sources received from a satellite.
 
-First, we are going to list some assumption and requirements about Housekeeping (HK) data:
+First, we are going to list some assumptions and requirements about Housekeeping (HK) data:
 
 1. HK data is generated periodically by various system components throughout the
-   systems.
+   system.
 2. An autonomous and periodic sampling of that HK data to be stored and sent to Ground is generally
    required. A minimum interface consists of requesting a one-shot sample of HK, enabling and
    disabling the periodic autonomous generation of samples and modifying the collection interval
    of the periodic autonomous generation.
-3. HK data often needs to be shared to other software components. For example, a thermal controller
+3. HK data often needs to be shared with other software components. For example, a thermal controller
    wants to read the data samples of all sensor components.
 
 ## Modelling our data
 
 Generally, it makes sense to model the data with Rust data structures for various reasons. For
-example, the sensor data received from a 3-axis magnetometer might me modelled like this:
+example, the sensor data received from a 3-axis magnetometer might be modelled like this:
 
 ```rust
 #[derive(Debug, Copy, Clone, serde::Serialize, serde::Deserialize)]
@@ -93,7 +93,7 @@ Sometimes, you need to share the generated data as well. Furthermore, it might m
 decouple the HK generation from the data acquisition and only return the latest snapshot
 of the data. In this case, you can put the `MgmData` inside an appropriate lock structure for your
 platform/runtime to share it safely with other software components. For example, in a `std` system,
-you might simply use an `Arc<Mutex<MgmData>>` or a `Arc<RwLock<MgmData>>` for this.
+you might simply use an `Arc<Mutex<MgmData>>` or an `Arc<RwLock<MgmData>>` for this.
 
 Now, you can update that shared data structure when acquiring new data, and other software objects
 or the HK generation routine can safely read from it.

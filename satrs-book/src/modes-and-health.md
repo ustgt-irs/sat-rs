@@ -5,9 +5,9 @@ system reasoning for both system operators and OBSW developers. They also provid
 the behaviour of a component and also provide observability of a system. A few examples of how to
 model the mode of different components within a space system with modes will be given.
 
-## Pyhsical device component with modes
+## Physical device component with modes
 
-The following simple mode scheme with the following three mode
+The following simple mode scheme with the following three modes
 
 - `OFF`
 - `ON`
@@ -18,10 +18,10 @@ sensors.
 
 1. `OFF` means that a device is physically switched off, and the corresponding software component
 does not poll the device regularly.
-2. `ON` means that a device is pyhsically switched on, but the device is not polled perically.
+2. `ON` means that a device is physically switched on, but the device is not polled periodically.
 3. `NORMAL` means that a device is powered on and polled periodically.
 
-If a devices is `OFF`, the device handler will deny commands which include physical communication
+If a device is `OFF`, the device handler will deny commands which include physical communication
 with the connected devices. In `NORMAL` mode, it will autonomously perform periodic polling
 of a connected physical device in addition to handling remote commands by the operator.
 Using these three basic modes, there are two important transitions which need to be taken care of
@@ -92,8 +92,8 @@ use-cases:
 2. `FAULTY` means that a component does not work properly. This might also impact other system
 components, so the passivation and isolation of that component is desirable for FDIR purposes.
 3. `NEEDS RECOVERY` is used to attempt a recovery of a component. For example, a simple sensor
-could be power-cycled if there were multiple communication issues in the last time.
+could be power-cycled if there were multiple communication issues recently.
 4. `EXTERNAL CONTROL` is used to isolate an individual component from the rest of the system. For
-   example, on operator might be interested in testing a component in isolation, and the interference
+   example, an operator might be interested in testing a component in isolation, and the interference
    of the system is not desired. In that case, the `EXTERNAL CONTROL` health state might be used
    to prevent mode commands from the system while allowing external mode commands.

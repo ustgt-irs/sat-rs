@@ -12,7 +12,7 @@ structures, fits perfectly into the data-driven approach that Rust programs tend
 allows us to use the excellent type system.
 
 The Rust ecosystem provides the [`serde`](https://serde.rs/) library for this task. The library
-makes it trivial to add serialization support to custom datastructures by providing a
+makes it trivial to add serialization support to custom data structures by providing a
 [`derive`](https://serde.rs/derive.html) macro. In almost all cases, you can just add this derive
 macro to a data structure to make it serializable with any `serde` compatible serializer.
 
@@ -28,7 +28,7 @@ these requirements and also works well for embedded systems.
 
 Using a serializer library like `serde` allows us to do some interesting things. For example,
 let's assume you have a `Camera` object in software that you want to send some commands to.
-This object should have the following capability:
+This object should have the following capabilities:
 
 - Process a ping command
 - Capture an image
@@ -69,16 +69,16 @@ to generate the byte representation of a `CameraRequest`, which is then sent as 
 inside a CCSDS space packet. On the on-board software side, you can use
 [`postcard::from_bytes`](https://docs.rs/postcard/latest/postcard/fn.from_bytes.html) to deserialize
 the `CameraRequest` from the raw payload bytes. In both cases, you do not need to hand-write
-the serialization and de-serialization code anymore. The only trade-off is that you need a Rust
+the serialization and deserialization code anymore. The only trade-off is that you need a Rust
 conversion layer if you want to create your telecommands in another language like Python.
 
 Using Rust structures like this also has other advantages. Once you have the `CameraRequest`
 structure, you can `match` on it to cover **all** commands that the device handler needs to cover.
-If you add a new field, you have to handle the new field variant as well and you can not forget
-to handle a variant.
+If you add a new variant, you have to handle it as well and you can not forget to handle a
+variant.
 
 One trade-off to keep in mind is that a Rust `enum` will always have the size of its largest variant
-in memory. If you need to send large payload to and from the on-board software, you can also
+in memory. If you need to send large payloads to and from the on-board software, you can also
 add this data as a secondary data blob behind the primary `serde` payload, and still send something
 like small metadata as part of the payload. `postcard` can tell you the size of the deserialized
 payload which helps with determining the size of any additional payload data.

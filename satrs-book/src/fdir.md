@@ -1,1 +1,1 @@
-# Fault Detecion, Isolation And Recovery (FDIR)
+# Fault Detection, Isolation And Recovery (FDIR)
