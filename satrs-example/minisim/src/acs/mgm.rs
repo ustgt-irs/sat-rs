@@ -70,6 +70,10 @@ impl MgmModel {
         self.external_mag_field = Some(field);
     }
 
+    pub async fn clear_external_magnetic_field(&mut self, _: ()) {
+        self.external_mag_field = None;
+    }
+
     fn calculate_current_mgm_tuple(&self, time_ms: u64) -> mgm::SensorValuesMicroTesla {
         if SwitchStateBinary::On == self.switch_state {
             if let Some(ext_field) = self.external_mag_field {

@@ -3,7 +3,7 @@ use std::collections::HashSet;
 use satrs::spacepackets::CcsdsPacketIdAndPsc;
 use types::{
     ComponentId, Event, EventId, Message,
-    acs::{mgm, mgm_assembly},
+    acs::{mgm, mgm_assembly, mgt},
     ccsds::{CcsdsTcPacketOwned, CcsdsTmPacketOwned},
     control,
     event_manager::{request::Request, response::Response},
@@ -18,6 +18,7 @@ pub struct EventManager {
     /// Shared by all MGM instances, which is why the sender ID is part of the message.
     pub mgm_rx: std::sync::mpsc::Receiver<(ComponentId, mgm::Event)>,
     pub mgm_assembly_rx: std::sync::mpsc::Receiver<mgm_assembly::Event>,
+    pub mgt_rx: std::sync::mpsc::Receiver<mgt::Event>,
     pub pcdu_rx: std::sync::mpsc::Receiver<pcdu::Event>,
     /// Shared by all TC sources, which is why the sender ID is part of the message.
     pub tc_source_rx: std::sync::mpsc::Receiver<(ComponentId, tmtc::Event)>,
@@ -29,11 +30,13 @@ pub struct EventManager {
 }
 
 impl EventManager {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         tc_rx: std::sync::mpsc::Receiver<CcsdsTcPacketOwned>,
         ctrl_rx: std::sync::mpsc::Receiver<control::Event>,
         mgm_rx: std::sync::mpsc::Receiver<(ComponentId, mgm::Event)>,
         mgm_assembly_rx: std::sync::mpsc::Receiver<mgm_assembly::Event>,
+        mgt_rx: std::sync::mpsc::Receiver<mgt::Event>,
         pcdu_rx: std::sync::mpsc::Receiver<pcdu::Event>,
         tc_source_rx: std::sync::mpsc::Receiver<(ComponentId, tmtc::Event)>,
         tm_tx: std::sync::mpsc::SyncSender<CcsdsTmPacketOwned>,
@@ -43,6 +46,7 @@ impl EventManager {
             ctrl_rx,
             mgm_rx,
             mgm_assembly_rx,
+            mgt_rx,
             pcdu_rx,
             tc_source_rx,
             tm_tx,
@@ -86,6 +90,9 @@ impl EventManager {
         }
         while let Ok(event) = self.mgm_assembly_rx.try_recv() {
             self.event_to_tm(ComponentId::AcsMgmAssembly, &event);
+        }
+        while let Ok(event) = self.mgt_rx.try_recv() {
+            self.event_to_tm(ComponentId::AcsMgt, &event);
         }
         while let Ok(event) = self.pcdu_rx.try_recv() {
             self.event_to_tm(ComponentId::EpsPcdu, &event);
@@ -187,6 +194,7 @@ mod tests {
             let (_ctrl_tx, ctrl_rx) = mpsc::sync_channel(5);
             let (mgm_event_tx, mgm_rx) = mpsc::sync_channel(5);
             let (_mgm_assembly_tx, mgm_assembly_rx) = mpsc::sync_channel(5);
+            let (_mgt_tx, mgt_rx) = mpsc::sync_channel(5);
             let (_pcdu_tx, pcdu_rx) = mpsc::sync_channel(5);
             let (_tc_source_tx, tc_source_rx) = mpsc::sync_channel(5);
             let (tm_tx, tm_rx) = mpsc::sync_channel(5);
@@ -199,6 +207,7 @@ mod tests {
                     ctrl_rx,
                     mgm_rx,
                     mgm_assembly_rx,
+                    mgt_rx,
                     pcdu_rx,
                     tc_source_rx,
                     tm_tx,

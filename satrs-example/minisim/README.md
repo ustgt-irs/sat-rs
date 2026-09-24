@@ -2,7 +2,7 @@ sat-rs minisim
 ======
 
 This crate contains a mini-simulator based on the open-source discrete-event simulation framework
-[asynchronix](https://github.com/asynchronics/asynchronix).
+[nexosim](https://github.com/asynchronics/nexosim).
 
 Right now, this crate is primarily used together with the
 [`satrs-example` application](https://egit.irs.uni-stuttgart.de/rust/sat-rs/src/branch/main/satrs-example)
@@ -29,4 +29,4 @@ still have similar device handlers.
 
 The following graph shows the high-level architecture of the mini-simulator.
 
-<img src="../images/minisim-arch/minisim-arch.png" alt="Mini simulator architecture" width="500" class="center"/>
+<img src="../../images/minisim-arch/minisim-arch.png" alt="Mini simulator architecture" width="500" class="center"/>

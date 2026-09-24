@@ -15,6 +15,7 @@ pub struct MgtModel {
     torquing: bool,
     torque_dipole: mgt::Dipole,
     pub gen_magnetic_field: Output<mgm::SensorValuesMicroTesla>,
+    pub clear_magnetic_field: Output<()>,
     reply_sender: mpsc::Sender<SimReply>,
 }
 
@@ -25,6 +26,7 @@ impl MgtModel {
             torquing: false,
             torque_dipole: mgt::Dipole::default(),
             gen_magnetic_field: Output::new(),
+            clear_magnetic_field: Output::new(),
             reply_sender,
         }
     }
@@ -48,12 +50,15 @@ impl MgtModel {
     pub async fn clear_torque(&mut self, _: ()) {
         self.torque_dipole = mgt::Dipole::default();
         self.torquing = false;
-        self.generate_magnetic_field(()).await;
+        self.clear_magnetic_field.send(()).await;
     }
 
     pub async fn switch_device(&mut self, switch_state: SwitchStateBinary) {
         self.switch_state = switch_state;
-        self.generate_magnetic_field(()).await;
+        match switch_state {
+            SwitchStateBinary::On => self.generate_magnetic_field(()).await,
+            SwitchStateBinary::Off => self.clear_torque(()).await,
+        }
     }
 
     pub async fn request_housekeeping_data(&mut self, _: (), cx: &mut Context<Self>) {
@@ -97,8 +102,12 @@ impl Model for MgtModel {}
 mod tests {
     use std::time::Duration;
 
-    use satrs_minisim::{acs::mgt, SimReply, SimRequestWithTime};
-    use types::pcdu::SwitchId;
+    use satrs_minisim::{
+        acs::{mgm, mgt},
+        eps::PcduRequest,
+        SimReply, SimRequest, SimRequestWithTime,
+    };
+    use types::pcdu::{SwitchId, SwitchStateBinary};
 
     use crate::{eps::tests::switch_device_on, test_helpers::SimTestbench};
 
@@ -164,6 +173,75 @@ mod tests {
                 dipole: mgt::Dipole::default(),
                 torquing: false,
             })
+        );
+    }
+
+    /// Processes the request without stepping, so scheduled events like the torque clearing do
+    /// not fire.
+    fn process_without_step(sim_testbench: &mut SimTestbench, request: impl Into<SimRequest>) {
+        sim_testbench
+            .send_request(SimRequestWithTime::new_with_epoch_time(request))
+            .expect("sending request failed");
+        sim_testbench.handle_sim_requests_time_agnostic();
+    }
+
+    fn read_mgm_0_field(sim_testbench: &mut SimTestbench) -> mgm::SensorValuesMicroTesla {
+        process_without_step(
+            sim_testbench,
+            SimRequest::Mgm {
+                id: mgm::Id::Mgm0,
+                request: mgm::Request::RequestSensorData,
+            },
+        );
+        let sim_reply = sim_testbench
+            .try_receive_next_reply()
+            .expect("no MGM reply received");
+        let SimReply::Mgm { reply, .. } = sim_reply else {
+            panic!("unexpected reply {sim_reply:?}");
+        };
+        reply.sensor_values
+    }
+
+    fn start_torquing(sim_testbench: &mut SimTestbench, duration: Duration) {
+        switch_device_on(sim_testbench, SwitchId::Mgm0);
+        switch_device_on(sim_testbench, SwitchId::Mgt);
+        process_without_step(
+            sim_testbench,
+            mgt::Request::ApplyTorque {
+                duration,
+                dipole: mgt::Dipole { x: 1, y: 2, z: 3 },
+            },
+        );
+        assert_eq!(read_mgm_0_field(sim_testbench), mgm::MGT_GEN_MAGNETIC_FIELD);
+    }
+
+    #[test]
+    fn test_mgm_field_cleared_after_torquing() {
+        let mut sim_testbench = SimTestbench::new();
+        start_torquing(&mut sim_testbench, Duration::from_millis(100));
+        sim_testbench
+            .step_until(Duration::from_millis(100))
+            .unwrap();
+        assert_ne!(
+            read_mgm_0_field(&mut sim_testbench),
+            mgm::MGT_GEN_MAGNETIC_FIELD
+        );
+    }
+
+    #[test]
+    fn test_mgm_field_cleared_by_switching_mgt_off() {
+        let mut sim_testbench = SimTestbench::new();
+        start_torquing(&mut sim_testbench, Duration::from_millis(100));
+        process_without_step(
+            &mut sim_testbench,
+            PcduRequest::SwitchDevice {
+                switch: SwitchId::Mgt,
+                state: SwitchStateBinary::Off,
+            },
+        );
+        assert_ne!(
+            read_mgm_0_field(&mut sim_testbench),
+            mgm::MGT_GEN_MAGNETIC_FIELD
         );
     }
 }
