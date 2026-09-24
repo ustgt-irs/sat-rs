@@ -1,4 +1,4 @@
-sat-rs example for the STM32H73ZI-Nucleo board
+sat-rs example for the STM32H753ZI-Nucleo board
 =======
 
 This example application shows how the [sat-rs library](https://egit.irs.uni-stuttgart.de/rust/sat-rs)
@@ -7,9 +7,9 @@ It also shows how a relatively simple OBSW could be built when no standard runti
 It uses [RTIC](https://rtic.rs/2/book/en/) as the concurrency framework and the
 [defmt](https://defmt.ferrous-systems.com/) framework for logging.
 
-The STM32H743ZIT device was picked because it is one of the more powerful Cortex-M based devices
-available for STM with which also has a little bit more RAM available and also allows commanding
-via TCP/IP.
+The STM32H753ZIT device was picked because it is one of the more powerful Cortex-M based STM32
+devices. It has more RAM available and allows commanding via Ethernet. The example is written for
+the NUCLEO-H753ZI board, which uses the MB1364 Nucleo-144 board layout.
 
 ## Pre-Requisites
 
@@ -29,15 +29,19 @@ If you have not installed it yet, you can do so with
 rustup target add thumbv7em-none-eabihf
 ```
 
-A default `.cargo` config file is provided for this project, but needs to be copied to have
-the correct name. This is so that the config file can be updated or edited for custom needs
-without being tracked by git.
+A default `.cargo` config file is provided as `.cargo/config.toml.template`. The build script
+copies it to `.cargo/config.toml` if that file does not exist yet. The copy is not tracked by git,
+so you can change settings like the runner for your setup.
+
+Cargo reads the configuration before the build script runs, so the very first build on a fresh
+checkout does not use it yet and might fail. Simply run the build again, or copy the file
+manually beforehand:
 
 ```sh
-cp def_config.toml config.toml
+cp .cargo/config.toml.template .cargo/config.toml
 ```
 
-The configuration file will also set the target so it does not always have to be specified with
+The configuration file also sets the target so it does not always have to be specified with
 the `--target` argument.
 
 ## Building
@@ -54,13 +58,13 @@ cargo build
 You can flash the application from the command line using `probe-rs`:
 
 ```sh
-probe-rs run --chip STM32H743ZITx
+probe-rs run --chip STM32H753ZITx
 ```
 
 ## Debugging with VS Code
 
-The STM32F3-Discovery comes with an on-board ST-Link so all that is required to flash and debug
-the board is a Mini-USB cable. The code in this repository was debugged using [`probe-rs`](https://probe.rs/docs/tools/debuggerA)
+The Nucleo board comes with an on-board ST-Link so all that is required to flash and debug
+the board is a USB cable. The code in this repository was debugged using [`probe-rs`](https://probe.rs/docs/tools/debuggerA)
 and the VS Code [`probe-rs` plugin](https://marketplace.visualstudio.com/items?itemName=probe-rs.probe-rs-debugger).
 Make sure to install this plugin first.
 
@@ -73,44 +77,37 @@ to automatically rebuild and flash your application.
 The `tasks.json` and `launch.json` files are generic and you can use them immediately by opening
 the folder in VS code or adding it to a workspace.
 
-## Commanding with Python
+## Commanding the board
 
-When the SW is running on the Discovery board, you can command the MCU via a serial interface,
-using COBS encoded PUS packets.
+The board is commanded via UDP on port 7301. It gets its IP address via DHCP, so it needs to be
+connected to a network with a DHCP server. The network configuration including the IP address is
+logged after startup. According to the board user manual UM2407, jumper JP6 and solder bridge SB72
+must be ON when using Ethernet. The telecommands are CCSDS space packets with a
+[`postcard`](https://docs.rs/postcard) serialized payload.
 
-It is recommended to use a virtual environment to do this. To set up one in the command line,
-you can use `python3 -m venv venv` on Unix systems or `py -m venv venv` on Windows systems.
-After doing this, you can check the [venv tutorial](https://docs.python.org/3/tutorial/venv.html)
-on how to activate the environment and then use the following command to install the required
-dependency:
+The [`embedded-client`](../embedded-client) application is used to command the board. Set the
+address of the board inside `embedded-client/config.toml`, for example:
 
-```sh
-pip install -r requirements.txt
+```toml
+[interface]
+udp_addr = "192.168.1.50:7301"
 ```
 
-The packets are exchanged using a dedicated serial interface. You can use any generic USB-to-UART
-converter device with the TX pin connected to the PA3 pin and the RX pin connected to the PA2 pin.
-
-A default configuration file for the python application is provided and can be used by running
+Then run the client from inside the `embedded-client` directory. For example, you can send a ping
+to the MCU using
 
 ```sh
-cp def_tmtc_conf.json tmtc_conf.json
+cargo run --bin stm32h7-client -- --ping
 ```
 
-After that, you can for example send a ping to the MCU using the following command
+and set the LED blink frequency to 500 ms using
 
 ```sh
-./main.py -p /ping
+cargo run --bin stm32h7-client -- --set-led-frequency 500
 ```
 
-You can configure the blinky frequency using
-
-```sh
-./main.py -p /change_blink_freq
-```
-
-All these commands will package a PUS telecommand which will be sent to the MCU using the COBS
-format as the packet framing format.
+You can also pass the board address with `--udp-addr` instead of setting it inside the
+configuration file.
 
 ## Resources
 

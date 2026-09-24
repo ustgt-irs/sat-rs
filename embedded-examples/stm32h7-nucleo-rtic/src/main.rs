@@ -51,7 +51,7 @@ mod app {
 
     bind_interrupts!(struct Irqs {
         ETH => eth::InterruptHandler;
-        RNG => rng::InterruptHandler<peripherals::RNG>;
+        HASH_RNG => rng::InterruptHandler<peripherals::RNG>;
     });
 
     type Device = eth::Ethernet<
@@ -105,35 +105,34 @@ mod app {
 
     #[init]
     fn init(_cx: init::Context) -> (Shared, Local) {
-        defmt::println!("Starting sat-rs demo application for the STM32H743ZIT");
+        defmt::println!("Starting sat-rs demo application for the STM32H753ZIT");
 
         let mut config = embassy_stm32::Config::default();
         {
             use embassy_stm32::rcc::*;
-            config.rcc.hsi = Some(HSIPrescaler::Div1);
+            config.rcc.hsi = Some(HSIPrescaler::DIV1);
             config.rcc.csi = true;
             config.rcc.hsi48 = Some(Default::default()); // needed for RNG
             config.rcc.pll1 = Some(Pll {
-                source: PllSource::Hsi,
-                prediv: PllPreDiv::Div4,
-                mul: PllMul::Mul50,
-                fracn: None,
-                divp: Some(PllDiv::Div2),
+                source: PllSource::HSI,
+                prediv: PllPreDiv::DIV4,
+                mul: PllMul::MUL50,
+                divp: Some(PllDiv::DIV2),
                 divq: None,
                 divr: None,
             });
-            config.rcc.sys = Sysclk::Pll1P; // 400 Mhz
-            config.rcc.ahb_pre = AHBPrescaler::Div2; // 200 Mhz
-            config.rcc.apb1_pre = APBPrescaler::Div2; // 100 Mhz
-            config.rcc.apb2_pre = APBPrescaler::Div2; // 100 Mhz
-            config.rcc.apb3_pre = APBPrescaler::Div2; // 100 Mhz
-            config.rcc.apb4_pre = APBPrescaler::Div2; // 100 Mhz
+            config.rcc.sys = Sysclk::PLL1_P; // 400 Mhz
+            config.rcc.ahb_pre = AHBPrescaler::DIV2; // 200 Mhz
+            config.rcc.apb1_pre = APBPrescaler::DIV2; // 100 Mhz
+            config.rcc.apb2_pre = APBPrescaler::DIV2; // 100 Mhz
+            config.rcc.apb3_pre = APBPrescaler::DIV2; // 100 Mhz
+            config.rcc.apb4_pre = APBPrescaler::DIV2; // 100 Mhz
             config.rcc.voltage_scale = VoltageScale::Scale1;
         }
         let periphs = embassy_stm32::init(config);
 
         let link_led = gpio::Output::new(periphs.PB0, gpio::Level::Low, gpio::Speed::Medium);
-        let mut led1 = gpio::Output::new(periphs.PB7, gpio::Level::Low, gpio::Speed::Medium);
+        let mut led1 = gpio::Output::new(periphs.PE1, gpio::Level::Low, gpio::Speed::Medium);
         let mut led2 = gpio::Output::new(periphs.PB14, gpio::Level::Low, gpio::Speed::Medium);
 
         // Criss-cross pattern looks cooler.

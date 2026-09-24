@@ -27,11 +27,10 @@ rtic = { version = "2", features = ["thumbv7-backend"] }
 spacepackets = { version = "0.18", default-features = false, features = ["defmt"] }
 postcard = "1"
 
-embassy-stm32 =  { git = "https://github.com/embassy-rs/embassy.git", rev = "dd8e4c14e53f088bae27c5d841ab7a4fa338a52c", version = "0.6", features = ["stm32h743zi", "memory-x", "defmt", "time-driver-any"]}
-
-embassy-time = { git = "https://github.com/embassy-rs/embassy.git", rev = "dd8e4c14e53f088bae27c5d841ab7a4fa338a52c", version = "0.5", features = ["defmt-timestamp-uptime-ms", "generic-queue-16"] }
-embassy-net = { git = "https://github.com/embassy-rs/embassy.git", rev = "dd8e4c14e53f088bae27c5d841ab7a4fa338a52c", version = "0.9", features = ["medium-ethernet", "proto-ipv4", "tcp", "udp", "auto-icmp-echo-reply", "dhcpv4", "defmt"] }
-embassy-sync = { git = "https://github.com/embassy-rs/embassy.git", rev = "dd8e4c14e53f088bae27c5d841ab7a4fa338a52c" }
+embassy-stm32 = { version = "0.6", features = ["stm32h753zi", "memory-x", "defmt", "time-driver-any"] }
+embassy-time = { version = "0.5", features = ["defmt-timestamp-uptime-ms", "generic-queue-16"] }
+embassy-net = { version = "0.9", features = ["medium-ethernet", "proto-ipv4", "tcp", "udp", "auto-icmp-echo-reply", "dhcpv4", "defmt"] }
+embassy-sync = "0.8"
 
 [dev-dependencies]
 defmt-test = "0.5"

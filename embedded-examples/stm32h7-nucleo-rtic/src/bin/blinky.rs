@@ -1,7 +1,8 @@
 //! Blinks an LED
 //!
-//! This assumes that LD2 (blue) is connected to pb7 and LD3 (red) is connected
-//! to pb14. This assumption is true for the nucleo-h743zi board.
+//! This assumes that LD1 (green) is connected to PB0, LD2 (yellow) to PE1 and LD3 (red) to
+//! PB14. This assumption is true for the MB1364 Nucleo-144 board, for example the
+//! NUCLEO-H753ZI.
 
 #![no_std]
 #![no_main]
@@ -24,7 +25,7 @@ mod app {
         defmt::info!("Hello World!");
         // Configure gpio B pin 0 as a push-pull output.
         let ld1 = gpio::Output::new(p.PB0, gpio::Level::High, gpio::Speed::Low);
-        let ld2 = gpio::Output::new(p.PB7, gpio::Level::High, gpio::Speed::Low);
+        let ld2 = gpio::Output::new(p.PE1, gpio::Level::High, gpio::Speed::Low);
         let ld3 = gpio::Output::new(p.PB14, gpio::Level::High, gpio::Speed::Low);
 
         // Schedule the blinking task

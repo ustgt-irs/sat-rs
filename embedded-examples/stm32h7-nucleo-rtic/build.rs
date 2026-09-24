@@ -3,7 +3,7 @@ use std::{env, fs};
 
 fn main() {
     let manifest_dir = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap());
-    let cargo_dir = manifest_dir.parent().unwrap().join(".cargo");
+    let cargo_dir = manifest_dir.join(".cargo");
     let config = cargo_dir.join("config.toml");
     let config_template = cargo_dir.join("config.toml.template");
 
