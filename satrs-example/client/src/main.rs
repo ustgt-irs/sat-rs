@@ -15,7 +15,7 @@ use std::{
     },
     time::{Duration, SystemTime},
 };
-use types::{Apid, MessageType, TcHeader, acs::mgm::request::HkRequest};
+use types::{Apid, Message as _, MessageType, TcHeader, acs::mgm::request::HkRequest};
 
 #[derive(clap::Parser)]
 pub struct Cli {
@@ -33,6 +33,7 @@ enum Commands {
     Mgm0(MgmArgs),
     Mgm1(MgmArgs),
     MgmAssy(MgmAssemblyArgs),
+    Mgt(MgtArgs),
     AcsSubsystem(SubsystemArgs),
     EventManager(EventManagerArgs),
 }
@@ -67,6 +68,7 @@ enum EventSenderSelect {
     Mgm0,
     Mgm1,
     MgmAssy,
+    Mgt,
     Pcdu,
     UdpServer,
     TcpServer,
@@ -79,6 +81,7 @@ impl From<EventSenderSelect> for types::ComponentId {
             EventSenderSelect::Controller => types::ComponentId::Controller,
             EventSenderSelect::Mgm0 => types::ComponentId::AcsMgm0,
             EventSenderSelect::Mgm1 => types::ComponentId::AcsMgm1,
+            EventSenderSelect::Mgt => types::ComponentId::AcsMgt,
             EventSenderSelect::MgmAssy => types::ComponentId::AcsMgmAssembly,
             EventSenderSelect::Pcdu => types::ComponentId::EpsPcdu,
             EventSenderSelect::UdpServer => types::ComponentId::UdpServer,
@@ -170,6 +173,25 @@ struct MgmArgs {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, clap::Parser)]
+struct MgtArgs {
+    #[arg(short, long)]
+    ping: bool,
+    /// Housekeeping request for the status data set.
+    #[arg(long, value_enum)]
+    hk: Option<HkSelect>,
+    /// Periodic HK interval. Required for `modify-interval`, optional for `enable-periodic`.
+    #[arg(long)]
+    hk_interval_ms: Option<u64>,
+    #[arg(short, long)]
+    mode: Option<DeviceModeSelect>,
+    /// Apply a dipole, given as `x,y,z`. Only accepted in normal mode.
+    #[arg(long, value_name = "X,Y,Z", value_parser = parse_dipole, allow_hyphen_values = true)]
+    torque: Option<types::acs::mgt::Dipole>,
+    #[arg(long, default_value_t = 1000)]
+    torque_duration_ms: u64,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, clap::Parser)]
 struct MgmAssemblyArgs {
     #[arg(short, long)]
     ping: bool,
@@ -204,6 +226,78 @@ pub enum SubsystemModeSelect {
     Safe,
 }
 
+fn hk_request_type(
+    hk: HkSelect,
+    hk_interval_ms: Option<u64>,
+) -> anyhow::Result<types::HkRequestType> {
+    let opt_interval = hk_interval_ms.map(Duration::from_millis);
+    Ok(match hk {
+        HkSelect::OneShot => types::HkRequestType::OneShot,
+        HkSelect::EnablePeriodic => types::HkRequestType::EnablePeriodic(opt_interval),
+        HkSelect::DisablePeriodic => types::HkRequestType::DisablePeriodic,
+        HkSelect::ModifyInterval => types::HkRequestType::ModifyInterval(
+            opt_interval.context("--hk-interval-ms is required for modify-interval")?,
+        ),
+    })
+}
+
+fn parse_dipole(value: &str) -> Result<types::acs::mgt::Dipole, String> {
+    let axes: Vec<i16> = value
+        .split(',')
+        .map(|axis| axis.trim().parse::<i16>().map_err(|e| e.to_string()))
+        .collect::<Result<_, _>>()?;
+    let [x, y, z] = axes[..] else {
+        return Err(format!("expected 3 values, got {}", axes.len()));
+    };
+    Ok(types::acs::mgt::Dipole { x, y, z })
+}
+
+fn send_mgt_request(
+    client: &UdpSocket,
+    addr: SocketAddr,
+    request: types::acs::mgt::request::Request,
+) {
+    let packet = types::ccsds::CcsdsTcPacketOwned::new_with_request(
+        SpacePacketHeader::new_from_apid(u11::new(Apid::Acs as u16)),
+        TcHeader::new(types::ComponentId::AcsMgt, request.message_type()),
+        request,
+    );
+    let sent_tc_id = CcsdsPacketIdAndPsc::new_from_ccsds_packet(&packet.sp_header);
+    log::info!(
+        "sending MGT request {:?} with TC ID {:#010x}",
+        request,
+        sent_tc_id.raw()
+    );
+    client.send_to(&packet.to_vec(), addr).unwrap();
+}
+
+fn handle_mgt_command(client: &UdpSocket, addr: SocketAddr, args: MgtArgs) -> anyhow::Result<()> {
+    use types::acs::mgt::request::{ModeRequest, Request};
+
+    if args.ping {
+        send_mgt_request(client, addr, Request::Ping);
+    }
+    if let Some(hk) = args.hk {
+        let req_type = hk_request_type(hk, args.hk_interval_ms)?;
+        send_mgt_request(client, addr, Request::Hk(req_type));
+    }
+    if let Some(mode) = args.mode {
+        let mode = match mode {
+            DeviceModeSelect::Off => types::DeviceMode::Off,
+            DeviceModeSelect::Normal => types::DeviceMode::Normal,
+        };
+        send_mgt_request(client, addr, Request::Mode(ModeRequest::SetMode(mode)));
+    }
+    if let Some(dipole) = args.torque {
+        let request = Request::ApplyTorque {
+            dipole,
+            duration: Duration::from_millis(args.torque_duration_ms),
+        };
+        send_mgt_request(client, addr, request);
+    }
+    Ok(())
+}
+
 fn handle_mgm_command(
     client: &UdpSocket,
     addr: SocketAddr,
@@ -235,15 +329,7 @@ fn handle_mgm_command(
         client.send_to(&request_packet, addr).unwrap();
     }
     if let Some(hk) = args.hk {
-        let opt_interval = args.hk_interval_ms.map(Duration::from_millis);
-        let req_type = match hk {
-            HkSelect::OneShot => types::HkRequestType::OneShot,
-            HkSelect::EnablePeriodic => types::HkRequestType::EnablePeriodic(opt_interval),
-            HkSelect::DisablePeriodic => types::HkRequestType::DisablePeriodic,
-            HkSelect::ModifyInterval => types::HkRequestType::ModifyInterval(
-                opt_interval.context("--hk-interval-ms is required for modify-interval")?,
-            ),
-        };
+        let req_type = hk_request_type(hk, args.hk_interval_ms)?;
         let request = types::ccsds::CcsdsTcPacketOwned::new_with_request(
             SpacePacketHeader::new_from_apid(u11::new(Apid::Acs as u16)),
             TcHeader::new(target_id, types::MessageType::Hk),
@@ -399,6 +485,7 @@ fn main() -> anyhow::Result<()> {
             Commands::Mgm1(args) => {
                 handle_mgm_command(&client, addr, types::ComponentId::AcsMgm1, args)?
             }
+            Commands::Mgt(args) => handle_mgt_command(&client, addr, args)?,
             Commands::MgmAssy(mgm_assembly_args) => {
                 let target_id = types::ComponentId::AcsMgmAssembly;
                 if mgm_assembly_args.ping {
@@ -576,6 +663,7 @@ fn handle_event(sender_id: types::ComponentId, data: &[u8]) {
         types::ComponentId::AcsMgmAssembly => {
             log_event::<types::acs::mgm_assembly::Event>(sender_id, data)
         }
+        types::ComponentId::AcsMgt => log_event::<types::acs::mgt::Event>(sender_id, data),
         types::ComponentId::EpsPcdu => log_event::<types::pcdu::Event>(sender_id, data),
         // TC source events are sent with the ID of the packet source.
         types::ComponentId::UdpServer
@@ -660,10 +748,42 @@ fn handle_raw_tm_packet(data: &[u8]) -> anyhow::Result<()> {
                     );
                 }
                 types::ComponentId::AcsController => todo!(),
-                types::ComponentId::AcsMgt => todo!(),
+                types::ComponentId::AcsMgt => {
+                    let response =
+                        postcard::from_bytes::<types::acs::mgt::response::Response>(remainder);
+                    log::info!("Received response from MGT: {:?}", response.unwrap());
+                }
             }
         }
         Err(_) => todo!(),
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_dipole() {
+        assert_eq!(
+            parse_dipole("-200, 200,1000"),
+            Ok(types::acs::mgt::Dipole {
+                x: -200,
+                y: 200,
+                z: 1000
+            })
+        );
+        assert!(parse_dipole("1,2").is_err());
+        assert!(parse_dipole("1,2,3,4").is_err());
+    }
+
+    #[test]
+    fn test_negative_torque_argument() {
+        let cli = Cli::try_parse_from(["client", "mgt", "--torque", "-200,200,1000"]).unwrap();
+        let Some(Commands::Mgt(args)) = cli.commands else {
+            panic!("expected mgt subcommand");
+        };
+        assert_eq!(args.torque.map(|dipole| dipole.x), Some(-200));
+    }
 }

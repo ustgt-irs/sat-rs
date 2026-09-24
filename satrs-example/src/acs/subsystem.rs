@@ -50,7 +50,7 @@ fn build_sequence_tables() -> SequenceModeTables {
     off_step_1.add_entry(SequenceTableEntry::new(
         "OFF_MGT_OFF",
         ComponentId::AcsMgt as satrs::ComponentId,
-        types::acs::mgt::Mode::Off.into(),
+        types::DeviceMode::Off.into(),
         false,
     ));
     off_table.add_sequence_table(off_step_1);
@@ -67,7 +67,7 @@ fn build_sequence_tables() -> SequenceModeTables {
     safe_step_0.add_entry(SequenceTableEntry::new(
         "SAFE_MGT_NORMAL",
         ComponentId::AcsMgt as satrs::ComponentId,
-        types::acs::mgt::Mode::Normal.into(),
+        types::DeviceMode::Normal.into(),
         false,
     ));
     safe_table.add_sequence_table(safe_step_0);
@@ -126,16 +126,18 @@ fn mgm_assy_response_to_mode_response(
     }
 }
 
-fn mgt_response_to_mode_response(response: types::acs::mgt::response::ModeReport) -> ModeResponse {
+fn mgt_response_to_mode_response(
+    response: types::acs::mgt::response::ModeResponse,
+) -> ModeResponse {
     let sender_id = ComponentId::AcsMgt as satrs::ComponentId;
     match response {
-        types::acs::mgt::response::ModeReport::Mode(mode) => ModeResponse {
+        types::acs::mgt::response::ModeResponse::Mode(mode) => ModeResponse {
             request_id: 0,
             sender_id,
             reported_mode: mode.into(),
             success: true,
         },
-        types::acs::mgt::response::ModeReport::WrongMode(_) => ModeResponse {
+        types::acs::mgt::response::ModeResponse::SetModeTimeout => ModeResponse {
             request_id: 0,
             sender_id,
             reported_mode: 0,
@@ -155,7 +157,7 @@ pub struct ModeRequestSenders {
 pub struct ModeReportReceivers {
     pub mode_response_ctrl: Receiver<types::acs::ctrl::response::ModeReport>,
     pub mode_response_mgm_assy: Receiver<types::acs::mgm_assembly::response::ModeResponse>,
-    pub mode_response_mgt: Receiver<types::acs::mgt::response::ModeReport>,
+    pub mode_response_mgt: Receiver<types::acs::mgt::response::ModeResponse>,
 }
 
 #[derive(Debug)]
@@ -191,7 +193,7 @@ impl Subsystem {
         mode_store_vec
             .add_component(
                 ComponentId::AcsMgt as satrs::ComponentId,
-                types::acs::mgt::Mode::Off.into(),
+                types::DeviceMode::Off.into(),
             )
             .unwrap();
 
@@ -319,7 +321,7 @@ impl Subsystem {
                     .mode_request_senders
                     .mode_request_mgt
                     .send(types::acs::mgt::request::ModeRequest::SetMode(
-                        types::acs::mgt::Mode::try_from(request.mode).unwrap(),
+                        types::DeviceMode::try_from(request.mode).unwrap(),
                     ))
                     .unwrap(),
                 _ => {

@@ -72,11 +72,13 @@ fn main() {
     let (sim_request_tx, sim_request_rx) = mpsc::channel();
     let (mgm_0_sim_reply_tx, mgm_0_sim_reply_rx) = mpsc::channel();
     let (mgm_1_sim_reply_tx, mgm_1_sim_reply_rx) = mpsc::channel();
+    let (mgt_sim_reply_tx, mgt_sim_reply_rx) = mpsc::channel();
     let (pcdu_sim_reply_tx, pcdu_sim_reply_rx) = mpsc::channel();
     let mut opt_sim_client = create_sim_client(sim_request_rx);
 
     let (mgm_0_handler_tc_tx, mgm_0_handler_tc_rx) = mpsc::sync_channel(10);
     let (mgm_1_handler_tc_tx, mgm_1_handler_tc_rx) = mpsc::sync_channel(10);
+    let (mgt_handler_tc_tx, mgt_handler_tc_rx) = mpsc::sync_channel(10);
     let (mgm_assembly_tc_tx, mgm_assembly_tc_rx) = mpsc::sync_channel(10);
     let (acs_subsystem_tc_tx, acs_subsystem_tc_rx) = mpsc::sync_channel(10);
     let (pcdu_handler_tc_tx, pcdu_handler_tc_rx) = mpsc::sync_channel(30);
@@ -104,6 +106,7 @@ fn main() {
     let (event_ctrl_tx, event_ctrl_rx) = mpsc::sync_channel(10);
     let (mgm_event_tx, mgm_event_rx) = mpsc::sync_channel(10);
     let (mgm_assembly_event_tx, mgm_assembly_event_rx) = mpsc::sync_channel(10);
+    let (mgt_event_tx, mgt_event_rx) = mpsc::sync_channel(10);
     let (pcdu_event_tx, pcdu_event_rx) = mpsc::sync_channel(10);
     let (tc_source_event_tx, tc_source_event_rx) = mpsc::sync_channel(10);
     let mut event_manager = EventManager::new(
@@ -111,6 +114,7 @@ fn main() {
         event_ctrl_rx,
         mgm_event_rx,
         mgm_assembly_event_rx,
+        mgt_event_rx,
         pcdu_event_rx,
         tc_source_event_rx,
         tm_sink_tx.clone(),
@@ -125,6 +129,7 @@ fn main() {
     tc_source.add_target(ComponentId::AcsMgm0, mgm_0_handler_tc_tx);
     tc_source.add_target(ComponentId::AcsMgm1, mgm_1_handler_tc_tx);
     tc_source.add_target(ComponentId::AcsMgmAssembly, mgm_assembly_tc_tx);
+    tc_source.add_target(ComponentId::AcsMgt, mgt_handler_tc_tx);
     tc_source.add_target(ComponentId::AcsSubsystem, acs_subsystem_tc_tx);
     tc_source.add_target(ComponentId::EventManager, event_manager_tc_tx);
 
@@ -252,10 +257,29 @@ fn main() {
         report_tx: acs_ctrl_response_tx,
     });
 
-    let mut acs_mgt = mgt::Mgt::new(mgt::ModeLeafHelper {
-        request_rx: mgt_request_rx,
-        report_tx: mgt_report_tx,
-    });
+    let mgt_com = if let Some(sim_client) = opt_sim_client.as_mut() {
+        sim_client.add_reply_recipient(satrs_minisim::ComponentId::Mgt, mgt_sim_reply_tx);
+        mgt::MgtCommunication::Sim(mgt::SimInterface {
+            sim_request_tx: sim_request_tx.clone(),
+            sim_reply_rx: mgt_sim_reply_rx,
+        })
+    } else {
+        mgt::MgtCommunication::Dummy(mgt::DummyInterface::default())
+    };
+    let mut mgt_handler = mgt::MgtHandler::new(
+        TmtcQueues {
+            tc_rx: mgt_handler_tc_rx,
+            tm_tx: tm_sink_tx.clone(),
+        },
+        switch_helper.clone(),
+        mgt_com,
+        mgt::ModeLeafHelper {
+            request_rx: mgt_request_rx,
+            report_tx: mgt_report_tx,
+        },
+        Duration::from_millis(1000),
+        mgt_event_tx,
+    );
 
     let mut acs_subsystem = subsystem::Subsystem::new(
         subsystem::ModeRequestSenders {
@@ -373,7 +397,7 @@ fn main() {
                 mgm_1_handler.periodic_operation();
                 mgm_assembly.periodic_operation();
                 acs_controller.periodic_operation();
-                acs_mgt.periodic_operation();
+                mgt_handler.periodic_operation();
                 acs_subsystem.periodic_operation();
                 thread::sleep(Duration::from_millis(FREQ_MS_AOCS));
             }

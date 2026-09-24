@@ -85,6 +85,12 @@ impl SimController {
         mgt_model
             .gen_magnetic_field
             .connect(MgmModel::apply_external_magnetic_field, &addrs.mgm_1);
+        mgt_model
+            .clear_magnetic_field
+            .connect(MgmModel::clear_external_magnetic_field, &addrs.mgm_0);
+        mgt_model
+            .clear_magnetic_field
+            .connect(MgmModel::clear_external_magnetic_field, &addrs.mgm_1);
 
         let sim_init = if threading_model == ThreadingModel::Single {
             SimInit::with_num_threads(1)
