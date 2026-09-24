@@ -36,8 +36,6 @@ impl SimTestbench {
     delegate! {
         to self.sim_controller {
             pub fn handle_sim_requests(&mut self, old_timestamp: MonotonicTime);
-        }
-        to self.sim_controller.simulation {
             pub fn step(&mut self) -> Result<(), ExecutionError>;
             pub fn step_until(&mut self, duration: impl Deadline) -> Result<(), ExecutionError>;
         }

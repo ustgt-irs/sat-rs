@@ -1,45 +1,49 @@
-use std::{sync::mpsc, time::Duration};
+use std::time::Duration;
 
 use nexosim::{
-    model::{Context, Model},
+    model::{schedulable, Context, Model},
     ports::Output,
 };
 use satrs_minisim::{eps::PcduReply, SimReply};
-use types::pcdu::{SwitchId, SwitchMapBinaryWrapper, SwitchStateBinary};
+use serde::{Deserialize, Serialize};
+use types::pcdu::{SwitchId, SwitchMapBinary, SwitchMapBinaryWrapper, SwitchStateBinary};
 
 pub const SWITCH_INFO_DELAY_MS: u64 = 10;
 
+#[derive(Serialize, Deserialize)]
 pub struct PcduModel {
-    pub switcher_map: SwitchMapBinaryWrapper,
+    switcher_map: SwitchMapBinary,
     pub mgm_0_switch: Output<SwitchStateBinary>,
     pub mgm_1_switch: Output<SwitchStateBinary>,
     pub mgt_switch: Output<SwitchStateBinary>,
-    pub reply_sender: mpsc::Sender<SimReply>,
+    pub reply: Output<SimReply>,
 }
 
+#[Model]
 impl PcduModel {
-    pub fn new(reply_sender: mpsc::Sender<SimReply>) -> Self {
+    pub fn new() -> Self {
         Self {
-            switcher_map: Default::default(),
+            switcher_map: SwitchMapBinaryWrapper::default().0,
             mgm_0_switch: Output::new(),
             mgm_1_switch: Output::new(),
             mgt_switch: Output::new(),
-            reply_sender,
+            reply: Output::new(),
         }
     }
 
-    pub async fn request_switch_info(&mut self, _: (), cx: &mut Context<Self>) {
+    pub async fn request_switch_info(&mut self, _: (), cx: &Context<Self>) {
         cx.schedule_event(
             Duration::from_millis(SWITCH_INFO_DELAY_MS),
-            Self::send_switch_info,
+            schedulable!(Self::send_switch_info),
             (),
         )
         .expect("requesting switch info failed");
     }
 
-    pub fn send_switch_info(&mut self) {
-        let reply = SimReply::from(PcduReply::SwitchInfo(self.switcher_map.0.clone()));
-        self.reply_sender.send(reply).unwrap();
+    #[nexosim(schedulable)]
+    async fn send_switch_info(&mut self) {
+        let reply = SimReply::from(PcduReply::SwitchInfo(self.switcher_map.clone()));
+        self.reply.send(reply).await;
     }
 
     pub async fn switch_device(&mut self, switch_and_target_state: (SwitchId, SwitchStateBinary)) {
@@ -50,7 +54,6 @@ impl PcduModel {
         );
         let val = self
             .switcher_map
-            .0
             .get_mut(&switch_and_target_state.0)
             .unwrap_or_else(|| panic!("switch {:?} not found", switch_and_target_state.0));
         *val = switch_and_target_state.1;
@@ -67,8 +70,6 @@ impl PcduModel {
         }
     }
 }
-
-impl Model for PcduModel {}
 
 #[cfg(test)]
 pub(crate) mod tests {
