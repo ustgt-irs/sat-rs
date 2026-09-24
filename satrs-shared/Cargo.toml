@@ -3,7 +3,7 @@ name = "satrs-shared"
 description = "Components shared by multiple sat-rs crates"
 version = "0.2.4"
 edition = "2021"
-homepage = "https://robamu.github.io/sat-rs/book/"
+homepage = "https://documentation.irs.uni-stuttgart.de/projects/sat-rs/"
 repository = "https://egit.irs.uni-stuttgart.de/rust/sat-rs"
 license = "Apache-2.0"
 

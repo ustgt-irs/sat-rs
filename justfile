@@ -39,3 +39,8 @@ docs: docs-satrs
 [working-directory:"satrs-book"]
 book *args:
   mdbook build {{args}}
+
+# Pass --dry-run to preview the changes first.
+[working-directory:"satrs-book"]
+deploy-book *args: book
+  rsync -avz --delete {{args}} book/html/ numalfix@documentation.irs.uni-stuttgart.de:/home/numalfix/www/projects/sat-rs/book/
