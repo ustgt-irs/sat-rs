@@ -19,8 +19,12 @@ pub enum ComponentId {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum SimRequest {
     SimCtrl(SimCtrlRequest),
-    Mgm { id: mgm::Id, request: mgm::Request },
-    Mgt(mgt::Request),
+    Mgm {
+        id: mgm::Id,
+        request: mgm::Request,
+    },
+    /// Raw frame of the MGT serial protocol.
+    Mgt(Vec<u8>),
     Pcdu(PcduRequest),
 }
 
@@ -32,7 +36,7 @@ impl From<SimCtrlRequest> for SimRequest {
 
 impl From<mgt::Request> for SimRequest {
     fn from(request: mgt::Request) -> Self {
-        Self::Mgt(request)
+        Self::Mgt(request.to_frame())
     }
 }
 
@@ -64,8 +68,12 @@ impl SimRequestWithTime {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum SimReply {
     SimCtrl(SimCtrlReply),
-    Mgm { id: mgm::Id, reply: mgm::Reply },
-    Mgt(mgt::Reply),
+    Mgm {
+        id: mgm::Id,
+        reply: mgm::Reply,
+    },
+    /// Raw frame of the MGT serial protocol.
+    Mgt(Vec<u8>),
     Pcdu(PcduReply),
 }
 
@@ -88,7 +96,7 @@ impl From<SimCtrlReply> for SimReply {
 
 impl From<mgt::Reply> for SimReply {
     fn from(reply: mgt::Reply) -> Self {
-        Self::Mgt(reply)
+        Self::Mgt(reply.to_frame())
     }
 }
 
@@ -263,10 +271,39 @@ pub mod acs {
         }
     }
 
+    /// Simple serial protocol of the magnetorquer.
+    ///
+    /// The first byte of each frame is the packet ID. The high bit of the ID is set for replies.
+    /// All fields are big endian. Every command is answered with exactly one reply, but only
+    /// if the device is powered. The device drops invalid frames.
+    ///
+    /// A data link layer is deliberately skipped for simplicity. A real serial link would need
+    /// framing and error detection, for example COBS encoding and a CRC. Here, the transport
+    /// always delivers complete and intact frames.
     pub mod mgt {
         use std::time::Duration;
 
         use serde::{Deserialize, Serialize};
+
+        pub mod packet_id {
+            pub const REQUEST_HK: u8 = 0x01;
+            /// Payload: dipole (3 x i16), duration in milliseconds (u32).
+            pub const APPLY_TORQUE: u8 = 0x02;
+            /// Payload: dipole (3 x i16), torquing flag (u8).
+            pub const HK: u8 = 0x81;
+            /// Reply to [APPLY_TORQUE].
+            pub const ACK: u8 = 0x82;
+        }
+
+        #[derive(Debug, Copy, Clone, PartialEq, Eq, thiserror::Error)]
+        pub enum FrameError {
+            #[error("empty frame")]
+            Empty,
+            #[error("unknown packet ID {0:#04x}")]
+            UnknownPacketId(u8),
+            #[error("invalid length {len} for packet ID {id:#04x}")]
+            InvalidLength { id: u8, len: usize },
+        }
 
         // Simple model using i16 values.
         #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -276,10 +313,82 @@ pub mod acs {
             pub z: i16,
         }
 
+        impl Dipole {
+            const LEN: usize = 6;
+
+            fn write_to(&self, frame: &mut Vec<u8>) {
+                frame.extend_from_slice(&self.x.to_be_bytes());
+                frame.extend_from_slice(&self.y.to_be_bytes());
+                frame.extend_from_slice(&self.z.to_be_bytes());
+            }
+
+            fn read_from(buf: &[u8]) -> Self {
+                Self {
+                    x: i16::from_be_bytes([buf[0], buf[1]]),
+                    y: i16::from_be_bytes([buf[2], buf[3]]),
+                    z: i16::from_be_bytes([buf[4], buf[5]]),
+                }
+            }
+        }
+
+        /// Checks the frame length and returns the packet ID and the payload.
+        fn split_frame(
+            frame: &[u8],
+            payload_len: impl Fn(u8) -> Option<usize>,
+        ) -> Result<(u8, &[u8]), FrameError> {
+            let (&id, payload) = frame.split_first().ok_or(FrameError::Empty)?;
+            let expected_len = payload_len(id).ok_or(FrameError::UnknownPacketId(id))?;
+            if payload.len() != expected_len {
+                return Err(FrameError::InvalidLength {
+                    id,
+                    len: frame.len(),
+                });
+            }
+            Ok((id, payload))
+        }
+
         #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
         pub enum Request {
-            ApplyTorque { duration: Duration, dipole: Dipole },
+            /// The duration has millisecond resolution on the wire.
+            ApplyTorque {
+                duration: Duration,
+                dipole: Dipole,
+            },
             RequestHk,
+        }
+
+        impl Request {
+            pub fn to_frame(&self) -> Vec<u8> {
+                match self {
+                    Request::RequestHk => vec![packet_id::REQUEST_HK],
+                    Request::ApplyTorque { duration, dipole } => {
+                        let mut frame = vec![packet_id::APPLY_TORQUE];
+                        dipole.write_to(&mut frame);
+                        let duration_ms = u32::try_from(duration.as_millis()).unwrap_or(u32::MAX);
+                        frame.extend_from_slice(&duration_ms.to_be_bytes());
+                        frame
+                    }
+                }
+            }
+
+            pub fn from_frame(frame: &[u8]) -> Result<Self, FrameError> {
+                let (id, payload) = split_frame(frame, |id| match id {
+                    packet_id::REQUEST_HK => Some(0),
+                    packet_id::APPLY_TORQUE => Some(Dipole::LEN + 4),
+                    _ => None,
+                })?;
+                Ok(match id {
+                    packet_id::REQUEST_HK => Request::RequestHk,
+                    _ => {
+                        let duration_ms =
+                            u32::from_be_bytes(payload[Dipole::LEN..].try_into().unwrap());
+                        Request::ApplyTorque {
+                            duration: Duration::from_millis(duration_ms.into()),
+                            dipole: Dipole::read_from(payload),
+                        }
+                    }
+                })
+            }
         }
 
         #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -291,6 +400,95 @@ pub mod acs {
         #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
         pub enum Reply {
             Hk(HkSet),
+            Ack,
+        }
+
+        impl Reply {
+            pub fn to_frame(&self) -> Vec<u8> {
+                match self {
+                    Reply::Hk(hk) => {
+                        let mut frame = vec![packet_id::HK];
+                        hk.dipole.write_to(&mut frame);
+                        frame.push(hk.torquing as u8);
+                        frame
+                    }
+                    Reply::Ack => vec![packet_id::ACK],
+                }
+            }
+
+            pub fn from_frame(frame: &[u8]) -> Result<Self, FrameError> {
+                let (id, payload) = split_frame(frame, |id| match id {
+                    packet_id::HK => Some(Dipole::LEN + 1),
+                    packet_id::ACK => Some(0),
+                    _ => None,
+                })?;
+                Ok(match id {
+                    packet_id::ACK => Reply::Ack,
+                    _ => Reply::Hk(HkSet {
+                        dipole: Dipole::read_from(payload),
+                        torquing: payload[Dipole::LEN] != 0,
+                    }),
+                })
+            }
+        }
+
+        #[cfg(test)]
+        mod tests {
+            use super::*;
+
+            #[test]
+            fn test_apply_torque_frame() {
+                let request = Request::ApplyTorque {
+                    duration: Duration::from_millis(0x0102_0304),
+                    dipole: Dipole {
+                        x: -2,
+                        y: 0x0506,
+                        z: 0x0708,
+                    },
+                };
+                let frame = request.to_frame();
+                assert_eq!(
+                    frame,
+                    [0x02, 0xff, 0xfe, 0x05, 0x06, 0x07, 0x08, 0x01, 0x02, 0x03, 0x04]
+                );
+                assert_eq!(Request::from_frame(&frame), Ok(request));
+            }
+
+            #[test]
+            fn test_request_hk_frame() {
+                assert_eq!(Request::RequestHk.to_frame(), [0x01]);
+                assert_eq!(Request::from_frame(&[0x01]), Ok(Request::RequestHk));
+            }
+
+            #[test]
+            fn test_reply_frames() {
+                let hk = Reply::Hk(HkSet {
+                    dipole: Dipole { x: 1, y: 2, z: 3 },
+                    torquing: true,
+                });
+                let frame = hk.to_frame();
+                assert_eq!(frame, [0x81, 0, 1, 0, 2, 0, 3, 1]);
+                assert_eq!(Reply::from_frame(&frame), Ok(hk));
+                assert_eq!(Reply::Ack.to_frame(), [0x82]);
+                assert_eq!(Reply::from_frame(&[0x82]), Ok(Reply::Ack));
+            }
+
+            #[test]
+            fn test_invalid_frames() {
+                assert_eq!(Request::from_frame(&[]), Err(FrameError::Empty));
+                assert_eq!(
+                    Request::from_frame(&[0x81]),
+                    Err(FrameError::UnknownPacketId(0x81))
+                );
+                assert_eq!(
+                    Request::from_frame(&[0x01, 0x00]),
+                    Err(FrameError::InvalidLength { id: 0x01, len: 2 })
+                );
+                assert_eq!(
+                    Reply::from_frame(&[0x81, 0, 1]),
+                    Err(FrameError::InvalidLength { id: 0x81, len: 3 })
+                );
+            }
         }
     }
 }

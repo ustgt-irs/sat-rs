@@ -26,11 +26,19 @@ pub mod request {
         ReadMode,
     }
 
+    #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum HealthRequest {
+        /// Overrides the device's autonomous FDIR health state, for example to clear a `Faulty`
+        /// state set by the handler after ground has fixed or worked around the underlying issue.
+        SetHealth(satrs::health::HealthState),
+    }
+
     #[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug)]
     pub enum Request {
         Ping,
         Hk(HkRequestType),
         Mode(ModeRequest),
+        Health(HealthRequest),
         /// Only accepted in normal mode.
         ApplyTorque {
             dipole: Dipole,
@@ -44,6 +52,7 @@ pub mod request {
                 Request::Ping => crate::MessageType::Verification,
                 Request::Hk(_) => crate::MessageType::Hk,
                 Request::Mode(_) => crate::MessageType::Mode,
+                Request::Health(_) => crate::MessageType::Health,
                 Request::ApplyTorque { .. } => crate::MessageType::Action,
             }
         }
@@ -54,8 +63,11 @@ pub mod request {
 #[strum_discriminants(derive(num_enum::IntoPrimitive))]
 #[repr(u16)]
 pub enum Event {
-    /// A commanded mode transition completed.
+    /// The communication fault counter exceeded its threshold. Followed by a recovery event.
+    CommFaultThresholdExceeded,
+    /// A commanded or autonomous mode transition completed.
     ModeChanged(DeviceMode),
+    Recovery(satrs::fdir::RecoveryEvent),
 }
 
 impl crate::Message for Event {
@@ -66,7 +78,10 @@ impl crate::Message for Event {
 
 impl crate::EventId for Event {
     fn event_id(&self) -> u16 {
-        EventDiscriminants::from(self).into()
+        match self {
+            Event::Recovery(event) => crate::recovery_event_id(*event),
+            _ => EventDiscriminants::from(self).into(),
+        }
     }
 }
 

@@ -10,6 +10,9 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use types::pcdu::SwitchStateBinary;
 
+/// Time the device needs to answer a command.
+const REPLY_DELAY: Duration = Duration::from_millis(10);
+
 /// Simple magnetorquer simulation model.
 #[derive(Serialize, Deserialize)]
 pub struct MgtModel {
@@ -39,6 +42,9 @@ impl MgtModel {
         duration_and_dipole: (Duration, mgt::Dipole),
         cx: &Context<Self>,
     ) {
+        if self.switch_state != SwitchStateBinary::On {
+            return;
+        }
         self.torque_dipole = duration_and_dipole.1;
         self.torquing = true;
         if cx
@@ -48,6 +54,7 @@ impl MgtModel {
             log::warn!("torque clearing can only be set for a future time.");
         }
         self.generate_magnetic_field(()).await;
+        self.schedule_reply(mgt::Reply::Ack, cx);
     }
 
     #[nexosim(schedulable)]
@@ -69,22 +76,22 @@ impl MgtModel {
         if self.switch_state != SwitchStateBinary::On {
             return;
         }
-        cx.schedule_event(
-            Duration::from_millis(15),
-            schedulable!(Self::send_housekeeping_data),
-            (),
-        )
-        .expect("requesting housekeeping data failed")
+        // The HK is sampled when the command is processed, not when the reply is sent.
+        let hk = mgt::HkSet {
+            dipole: self.torque_dipole,
+            torquing: self.torquing,
+        };
+        self.schedule_reply(mgt::Reply::Hk(hk), cx);
+    }
+
+    fn schedule_reply(&self, reply: mgt::Reply, cx: &Context<Self>) {
+        cx.schedule_event(REPLY_DELAY, schedulable!(Self::send_reply), reply)
+            .expect("scheduling MGT reply failed")
     }
 
     #[nexosim(schedulable)]
-    async fn send_housekeeping_data(&mut self) {
-        self.reply
-            .send(SimReply::from(mgt::Reply::Hk(mgt::HkSet {
-                dipole: self.torque_dipole,
-                torquing: self.torquing,
-            })))
-            .await;
+    async fn send_reply(&mut self, reply: mgt::Reply) {
+        self.reply.send(SimReply::from(reply)).await;
     }
 
     fn calc_magnetic_field(&self, _: mgt::Dipole) -> mgm::SensorValuesMicroTesla {
@@ -118,10 +125,17 @@ mod tests {
 
     use crate::{eps::tests::switch_device_on, test_helpers::SimTestbench};
 
+    fn decode_reply(sim_reply: SimReply) -> mgt::Reply {
+        let SimReply::Mgt(frame) = sim_reply else {
+            panic!("unexpected reply {sim_reply:?}");
+        };
+        mgt::Reply::from_frame(&frame).expect("invalid MGT reply frame")
+    }
+
     fn request_hk(sim_testbench: &mut SimTestbench) -> Option<mgt::HkSet> {
         let sim_reply = sim_testbench.request_reply(mgt::Request::RequestHk)?;
-        let SimReply::Mgt(mgt::Reply::Hk(hk)) = sim_reply else {
-            panic!("unexpected reply {sim_reply:?}");
+        let mgt::Reply::Hk(hk) = decode_reply(sim_reply) else {
+            panic!("unexpected MGT reply");
         };
         Some(hk)
     }
@@ -162,7 +176,11 @@ mod tests {
             .send_request(request)
             .expect("sending MGT request failed");
         sim_testbench.handle_sim_requests_time_agnostic();
-        sim_testbench.step_until(Duration::from_millis(5)).unwrap();
+        sim_testbench.step_until(Duration::from_millis(20)).unwrap();
+        let ack = sim_testbench
+            .try_receive_next_reply()
+            .expect("no torque command ack");
+        assert_eq!(decode_reply(ack), mgt::Reply::Ack);
 
         assert_eq!(
             request_hk(&mut sim_testbench),
@@ -183,6 +201,25 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_torque_command_not_acked_when_off() {
+        let mut sim_testbench = SimTestbench::new();
+        let reply = sim_testbench.request_reply(mgt::Request::ApplyTorque {
+            duration: Duration::from_millis(100),
+            dipole: mgt::Dipole { x: 1, y: 2, z: 3 },
+        });
+        assert!(reply.is_none());
+    }
+
+    #[test]
+    fn test_invalid_frame_is_dropped() {
+        let mut sim_testbench = SimTestbench::new();
+        switch_device_on(&mut sim_testbench, SwitchId::Mgt);
+        assert!(sim_testbench
+            .request_reply(SimRequest::Mgt(vec![0x01, 0x00]))
+            .is_none());
+    }
+
     /// Processes the request without stepping, so scheduled events like the torque clearing do
     /// not fire.
     fn process_without_step(sim_testbench: &mut SimTestbench, request: impl Into<SimRequest>) {
@@ -200,13 +237,15 @@ mod tests {
                 request: mgm::Request::RequestSensorData,
             },
         );
-        let sim_reply = sim_testbench
-            .try_receive_next_reply()
-            .expect("no MGM reply received");
-        let SimReply::Mgm { reply, .. } = sim_reply else {
-            panic!("unexpected reply {sim_reply:?}");
-        };
-        reply.sensor_values
+        // Skips pending MGT replies, for example torque command acks.
+        loop {
+            let sim_reply = sim_testbench
+                .try_receive_next_reply()
+                .expect("no MGM reply received");
+            if let SimReply::Mgm { reply, .. } = sim_reply {
+                return reply.sensor_values;
+            }
+        }
     }
 
     fn start_torquing(sim_testbench: &mut SimTestbench, duration: Duration) {

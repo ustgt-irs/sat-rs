@@ -1,4 +1,4 @@
-use satrs::fdir::{FaultCounterStd, FaultResponse, RecoveryEvent, RecoveryFdir};
+use satrs::fdir::{FaultCounterStd, RecoveryEvent};
 use satrs::health::HealthTableMapSync;
 use satrs::spacepackets::CcsdsPacketIdAndPsc;
 use satrs_example::{HkHelperSingleSet, TimestampHelper, TmtcQueues};
@@ -15,6 +15,7 @@ use types::pcdu::SwitchId;
 use types::{ComponentId, DeviceMode, HkRequestType, acs::mgm};
 
 use crate::ccsds::pack_ccsds_tm_packet_for_now;
+use crate::device_fdir::{DeviceFdir, FdirEvent};
 use crate::device_mode::{ModeTransitionEvent, SwitchAndModeHelper};
 use crate::eps::PowerSwitchHelper;
 
@@ -34,13 +35,6 @@ pub const Z_LOWBYTE_IDX: usize = 13;
 pub const SPI_FAULT_THRESHOLD: u32 = 2;
 pub const SPI_FAULT_DECREMENT_AFTER: Duration = Duration::from_secs(30);
 
-// FDIR configuration for power cycle recoveries. The component is marked faulty if it would be
-// recovered more than RECOVERY_THRESHOLD times before the counter is decremented again.
-pub const RECOVERY_THRESHOLD: u32 = 2;
-pub const RECOVERY_DECREMENT_AFTER: Duration = Duration::from_secs(60);
-/// Time the device stays unpowered during a power cycle, so it can fully discharge.
-pub const RECOVERY_OFF_DURATION: Duration = Duration::from_millis(500);
-
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum MgmId {
     _0,
@@ -48,7 +42,7 @@ pub enum MgmId {
 }
 
 impl MgmId {
-    pub const fn str(&self) -> &str {
+    pub const fn str(&self) -> &'static str {
         match self {
             MgmId::_0 => "MGM 0",
             MgmId::_1 => "MGM 1",
@@ -191,9 +185,7 @@ pub struct MgmHandlerLis3Mdl {
     hk_helper: HkHelperSingleSet,
     switch_and_mode_helper: SwitchAndModeHelper<DeviceMode>,
     mode_leaf_helper: ModeLeafHelper,
-    spi_fault_counter: FaultCounterStd,
-    fdir: RecoveryFdir<HealthTableMapSync>,
-    recovery_off_duration: Duration,
+    fdir: DeviceFdir,
     event_tx: mpsc::SyncSender<(ComponentId, mgm::Event)>,
 }
 
@@ -225,14 +217,12 @@ impl MgmHandlerLis3Mdl {
             stamp_helper: TimestampHelper::default(),
             hk_helper: HkHelperSingleSet::new(false, Duration::from_millis(200)),
             mode_leaf_helper,
-            spi_fault_counter: FaultCounterStd::new(SPI_FAULT_THRESHOLD, SPI_FAULT_DECREMENT_AFTER),
-            fdir: RecoveryFdir::new(
-                id.component_id().into(),
+            fdir: DeviceFdir::new(
+                id.str(),
+                id.component_id(),
                 health_table,
-                RECOVERY_THRESHOLD,
-                RECOVERY_DECREMENT_AFTER,
+                FaultCounterStd::new(SPI_FAULT_THRESHOLD, SPI_FAULT_DECREMENT_AFTER),
             ),
-            recovery_off_duration: RECOVERY_OFF_DURATION,
             event_tx,
         }
     }
@@ -253,8 +243,9 @@ impl MgmHandlerLis3Mdl {
         // Handle assembly related messages.
         self.handle_mode_leaf_handling();
 
-        self.fdir.periodic_operation();
-        self.check_needs_recovery();
+        self.fdir
+            .periodic_operation(&mut self.switch_and_mode_helper);
+        self.handle_fdir_events();
 
         // Handle mode transitions first. This also takes care of recoveries required by FDIR.
         if let Some(event) = self.switch_and_mode_helper.handle_mode_transition() {
@@ -266,9 +257,14 @@ impl MgmHandlerLis3Mdl {
                     self.handle_mode_transition_failure(tc_commander)
                 }
                 // The mode did not change for other components, so there is nothing to report.
-                ModeTransitionEvent::PowerCycleDone => self.handle_recovery_done(),
+                ModeTransitionEvent::PowerCycleDone => {
+                    self.fdir.handle_power_cycle_done();
+                    self.handle_fdir_events();
+                }
                 ModeTransitionEvent::PowerCycleFailed { restore_mode } => {
-                    self.handle_recovery_failure(restore_mode)
+                    self.fdir
+                        .handle_power_cycle_failed(&mut self.switch_and_mode_helper, restore_mode);
+                    self.handle_fdir_events();
                 }
             }
         }
@@ -453,7 +449,7 @@ impl MgmHandlerLis3Mdl {
             return;
         }
         // Successfull readout, so we can decrement the counter.
-        self.spi_fault_counter.try_decrement();
+        self.fdir.register_success();
         // Simple scaling to retrieve the float value, assuming the best sensor resolution.
         let mut mgm_guard = self.shared_mgm_set.lock().unwrap();
         mgm_guard.x = x_raw as f32 * GAUSS_TO_MICROTESLA_FACTOR as f32 * FIELD_LSB_PER_GAUSS_4_SENS;
@@ -463,122 +459,39 @@ impl MgmHandlerLis3Mdl {
         drop(mgm_guard);
     }
 
-    /// Registers one SPI fault with the FDIR fault counter, invalidating the current
-    /// sensor set. If the failure threshold is exceeded, the device is power cycled. If it was
-    /// power cycled too often, the component is marked faulty and commanded off instead.
+    /// Registers one SPI fault with the FDIR, invalidating the current sensor set.
     fn register_spi_fault(&mut self) {
         log::warn!("{}: stuck-bus SPI fault", self.id.str());
         self.shared_mgm_set.lock().unwrap().valid = false;
-        if !self.spi_fault_counter.increment_and_check() {
-            return;
-        }
-        match self.fdir.handle_fault() {
-            FaultResponse::Ignored => {
-                log::info!(
-                    "{}: SPI fault threshold exceeded, but component is already faulty, \
-                     recovering or externally controlled",
-                    self.id.str()
-                );
-            }
-            FaultResponse::Recover => {
-                log::warn!(
-                    "{}: SPI fault threshold exceeded, power cycling device",
-                    self.id.str()
-                );
-                self.send_event(mgm::Event::SpiFaultThresholdExceeded);
-                self.check_needs_recovery();
-            }
-            FaultResponse::SetFaulty => {
-                log::error!(
-                    "{}: SPI fault threshold exceeded after too many recoveries, marking \
-                     component faulty",
-                    self.id.str()
-                );
-                self.send_event(mgm::Event::SpiFaultThresholdExceeded);
-                self.send_event(mgm::Event::Recovery(RecoveryEvent::ThresholdExceeded));
-                self.switch_off_faulty_device();
-            }
+        self.fdir.register_fault(&mut self.switch_and_mode_helper);
+        self.handle_fdir_events();
+    }
+
+    fn handle_fdir_events(&mut self) {
+        while let Some(event) = self.fdir.next_event() {
+            let event = match event {
+                FdirEvent::FaultThresholdExceeded => mgm::Event::SpiFaultThresholdExceeded,
+                FdirEvent::Recovery(recovery_event) => {
+                    // The device is power cycled or switched off.
+                    if matches!(
+                        recovery_event,
+                        RecoveryEvent::Started | RecoveryEvent::ThresholdExceeded
+                    ) {
+                        self.shared_mgm_set.lock().unwrap().valid = false;
+                    }
+                    mgm::Event::Recovery(recovery_event)
+                }
+            };
+            self.send_event(event);
         }
     }
 
-    fn switch_off_faulty_device(&mut self) {
-        // Do not restart an already pending Off transition, which would reset the transition
-        // state machine before it can finish.
-        if self.switch_and_mode_helper.target() != Some(DeviceMode::Off) {
-            log::warn!("{}: commanding device off due to fault", self.id.str());
-            self.start_transition(DeviceMode::Off, None);
-        }
-    }
-
-    /// Starts a power cycle if the health is [satrs::health::HealthState::NeedsRecovery]. The health is set
-    /// either by the FDIR or by ground.
-    fn check_needs_recovery(&mut self) {
-        if self.switch_and_mode_helper.power_cycle_active()
-            || self.switch_and_mode_helper.target().is_some()
-            || !self.fdir.needs_recovery()
-        {
-            return;
-        }
-        if self.mode() == DeviceMode::Off {
-            // Nothing to power cycle, the next switch-on is a fresh start anyway.
-            log::info!("{}: device is off, no recovery required", self.id.str());
-            self.fdir.recovery_done();
-            return;
-        }
-        self.start_recovery(self.mode());
-    }
-
-    fn start_recovery(&mut self, restore_mode: DeviceMode) {
-        log::warn!("{}: starting power cycle recovery", self.id.str());
-        self.shared_mgm_set.lock().unwrap().valid = false;
-        self.switch_and_mode_helper
-            .start_power_cycle(restore_mode, self.recovery_off_duration);
-        self.send_event(mgm::Event::Recovery(RecoveryEvent::Started));
-    }
-
-    fn handle_recovery_done(&mut self) {
-        log::info!("{}: power cycle recovery done", self.id.str());
-        // Faults registered while the device was switched off do not count anymore.
-        self.spi_fault_counter.clear();
-        self.fdir.recovery_done();
-        self.send_event(mgm::Event::Recovery(RecoveryEvent::Done));
-    }
-
-    /// A failed power cycle costs a recovery attempt like any other fault.
-    fn handle_recovery_failure(&mut self, restore_mode: DeviceMode) {
-        self.send_event(mgm::Event::Recovery(RecoveryEvent::Failed));
-        match self.fdir.recovery_failed() {
-            FaultResponse::Recover => {
-                log::warn!("{}: power cycle recovery failed, retrying", self.id.str());
-                self.start_recovery(restore_mode);
-            }
-            FaultResponse::SetFaulty => {
-                log::error!(
-                    "{}: power cycle recovery failed too often, marking component faulty",
-                    self.id.str()
-                );
-                self.send_event(mgm::Event::Recovery(RecoveryEvent::ThresholdExceeded));
-                self.switch_off_faulty_device();
-            }
-            // Ground changed the health during the recovery and is in charge now.
-            FaultResponse::Ignored => (),
-        }
-    }
-
-    /// Mode commands from ground or the parent abort a running recovery.
     fn handle_mode_command(
         &mut self,
         target_mode: DeviceMode,
         tc_commander: Option<CcsdsPacketIdAndPsc>,
     ) {
-        if self.switch_and_mode_helper.power_cycle_active() {
-            log::warn!(
-                "{}: mode command aborts power cycle recovery",
-                self.id.str()
-            );
-            // Otherwise, the recovery would restart right away.
-            self.fdir.recovery_done();
-        }
+        self.fdir.handle_mode_command(&self.switch_and_mode_helper);
         self.start_transition(target_mode, tc_commander);
     }
 
@@ -662,6 +575,7 @@ mod tests {
         pcdu::{SwitchRequest, SwitchState, SwitchStateBinary},
     };
 
+    use crate::device_fdir::RECOVERY_THRESHOLD;
     use crate::eps::pcdu::{SharedSwitchSet, SwitchMap, SwitchSet};
 
     use super::*;
@@ -734,7 +648,7 @@ mod tests {
                 health_table.clone(),
                 event_tx,
             );
-            handler.recovery_off_duration = Duration::ZERO;
+            handler.fdir.recovery_off_duration = Duration::ZERO;
             Self {
                 assembly_mode_request_tx,
                 mode_report_rx,
@@ -1132,7 +1046,7 @@ mod tests {
                 mgm::Event::Recovery(RecoveryEvent::Done),
             ]
         ));
-        assert_eq!(testbench.handler.spi_fault_counter.fault_count(), 0);
+        assert_eq!(testbench.handler.fdir.fault_count(), 0);
         assert!(testbench.handler.shared_mgm_set.lock().unwrap().valid);
     }
 
@@ -1343,7 +1257,7 @@ mod tests {
         testbench.handler.periodic_operation();
         testbench.set_switch_state(SwitchState::Off);
         // Keep the device off until the parent asked for its mode.
-        testbench.handler.recovery_off_duration = Duration::from_secs(60);
+        testbench.handler.fdir.recovery_off_duration = Duration::from_secs(60);
         testbench.handler.periodic_operation();
         assert_eq!(testbench.handler.mode(), DeviceMode::Off);
         testbench.mode_report_rx.try_iter().for_each(drop);
