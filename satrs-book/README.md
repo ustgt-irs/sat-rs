@@ -1,7 +1,7 @@
 sat-rs book
 =========
 
-High-level documentation of the [sat-rs project](https://absatsw.irs.uni-stuttgart.de/projects/sat-rs/).
+High-level documentation of the [sat-rs project](https://egit.irs.uni-stuttgart.de/rust/sat-rs).
 
 ## Building
 

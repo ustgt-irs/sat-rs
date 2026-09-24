@@ -1,7 +1,7 @@
 //! Telemetry and Telecommanding (TMTC) module. Contains packet routing components with special
 //! support for CCSDS and ECSS packets.
 //!
-//! It is recommended to read the [sat-rs book chapter](https://absatsw.irs.uni-stuttgart.de/projects/sat-rs/book/communication.html)
+//! It is recommended to read the [sat-rs book chapter](https://robamu.github.io/sat-rs/book/communication.html)
 //! about communication first. The TMTC abstractions provided by this framework are based on the
 //! assumption that all telemetry is sent to a special handler object called the TM sink while
 //! all received telecommands are sent to a special handler object called TC source. Using

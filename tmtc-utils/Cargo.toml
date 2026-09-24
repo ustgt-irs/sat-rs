@@ -3,7 +3,7 @@ name = "tmtc-utils"
 description = "Commonly required utilities for writing TMTC clients with Rust"
 version = "0.1.0"
 edition = "2024"
-homepage = "https://absatsw.irs.uni-stuttgart.de/projects/sat-rs/"
+homepage = "https://robamu.github.io/sat-rs/book/"
 repository = "https://egit.irs.uni-stuttgart.de/rust/sat-rs"
 license = "Apache-2.0"
 

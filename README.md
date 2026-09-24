@@ -1,6 +1,5 @@
 <p align="center"> <img src="misc/satrs-logo-v2.png" width="40%"> </p>
 
-<!-- [![sat-rs website](https://img.shields.io/badge/sat--rs-website-darkgreen?style=flat)](https://absatsw.irs.uni-stuttgart.de/projects/sat-rs/) -->
 [![sat-rs book](https://img.shields.io/badge/sat--rs-book-darkgreen?style=flat)](https://robamu.github.io/sat-rs/book/)
 [![Crates.io](https://img.shields.io/crates/v/satrs)](https://crates.io/crates/satrs)
 [![docs.rs](https://img.shields.io/docsrs/satrs)](https://docs.rs/satrs)
@@ -11,9 +10,8 @@ sat-rs
 
 This is the repository of the sat-rs library. Its primary goal is to provide re-usable components
 to write on-board software for remote systems like rovers or satellites. It is specifically written
-for the special requirements for these systems. You can find an overview of the project and the
-link to the [more high-level sat-rs book](https://robamu.github.io/sat-rs/book/)
-at the [IRS software projects website](https://absatsw.irs.uni-stuttgart.de/projects/sat-rs/).
+for the special requirements for these systems. You can find an overview of the project in the
+[more high-level sat-rs book](https://robamu.github.io/sat-rs/book/).
 
 This is early-stage software. Important features are missing. New releases
 with breaking changes are released regularly, with all changes documented inside respective
@@ -31,7 +29,7 @@ This project currently contains following crates:
 
 * [`satrs-book`](https://egit.irs.uni-stuttgart.de/rust/sat-rs/src/branch/main/satrs-book):
    Primary information resource in addition to the API documentation, hosted
-   [here](https://documentation.irs.uni-stuttgart.de/projects/sat-rs/). It can be useful to read
+   [here](https://robamu.github.io/sat-rs/book/). It can be useful to read
    this first before delving into the example application and the API documentation.
 * [`satrs`](https://egit.irs.uni-stuttgart.de/rust/sat-rs/src/branch/main/satrs):
    Primary crate.
