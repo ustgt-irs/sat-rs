@@ -1,7 +1,11 @@
-use std::{f32::consts::PI, sync::mpsc};
+use std::f32::consts::PI;
 
-use nexosim::model::{Context, Model};
+use nexosim::{
+    model::{Context, Model},
+    ports::Output,
+};
 use satrs_minisim::{acs::mgm, SimReply};
+use serde::{Deserialize, Serialize};
 use types::pcdu::SwitchStateBinary;
 
 use crate::time::current_millis;
@@ -19,22 +23,24 @@ const PHASE_Z: f32 = 0.2;
 /// An ideal sensor would sample the magnetic field at a high fixed rate. This might not be
 /// possible for a general purpose OS, but self self-sampling at a relatively high rate (20-40 ms)
 /// might still be possible and is probably sufficient for many OBSW needs.
+#[derive(Serialize, Deserialize)]
 pub struct MgmModel {
-    pub id: mgm::Id,
-    pub switch_state: SwitchStateBinary,
-    pub external_mag_field: Option<mgm::SensorValuesMicroTesla>,
-    pub spi_fault: mgm::SpiFault,
-    pub reply_sender: mpsc::Sender<SimReply>,
+    id: mgm::Id,
+    switch_state: SwitchStateBinary,
+    external_mag_field: Option<mgm::SensorValuesMicroTesla>,
+    spi_fault: mgm::SpiFault,
+    pub reply: Output<SimReply>,
 }
 
+#[Model]
 impl MgmModel {
-    pub fn new(mgm_id: mgm::Id, reply_sender: mpsc::Sender<SimReply>) -> Self {
+    pub fn new(mgm_id: mgm::Id) -> Self {
         Self {
             id: mgm_id,
             switch_state: SwitchStateBinary::Off,
             external_mag_field: None,
             spi_fault: mgm::SpiFault::default(),
-            reply_sender,
+            reply: Output::new(),
         }
     }
 
@@ -50,18 +56,16 @@ impl MgmModel {
         self.spi_fault = fault;
     }
 
-    pub async fn send_sensor_values(&mut self, _: (), scheduler: &mut Context<Self>) {
+    pub async fn send_sensor_values(&mut self, _: (), cx: &Context<Self>) {
         let reply = SimReply::Mgm {
             id: self.id,
             reply: mgm::Reply::new(
                 self.switch_state,
-                self.calculate_current_mgm_tuple(current_millis(scheduler.time())),
+                self.calculate_current_mgm_tuple(current_millis(cx.time())),
                 self.spi_fault.mode,
             ),
         };
-        self.reply_sender
-            .send(reply)
-            .expect("sending MGM sensor values failed");
+        self.reply.send(reply).await;
     }
 
     // Devices like magnetorquers generate a strong magnetic field which overrides the default
@@ -93,8 +97,6 @@ impl MgmModel {
         }
     }
 }
-
-impl Model for MgmModel {}
 
 #[cfg(test)]
 mod tests {

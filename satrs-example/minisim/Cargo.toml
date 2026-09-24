@@ -15,7 +15,7 @@ strum = { version = "0.28", features = ["derive"] }
 num_enum = "0.7"
 humantime = "2"
 tai-time = { version = "0.3", features = ["serde"] }
-nexosim = { version = "0.3.1" }
+nexosim = "1"
 
 satrs = { path = "../../satrs" }
 types = { path = "../types" }

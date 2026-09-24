@@ -1,45 +1,48 @@
 use nexosim::{
-    model::{Context, Model},
+    model::{schedulable, Context, Model},
     ports::Output,
 };
 use satrs_minisim::{
     acs::{mgm, mgt},
     SimReply,
 };
-use std::{sync::mpsc, time::Duration};
+use serde::{Deserialize, Serialize};
+use std::time::Duration;
 use types::pcdu::SwitchStateBinary;
 
 /// Simple magnetorquer simulation model.
+#[derive(Serialize, Deserialize)]
 pub struct MgtModel {
     switch_state: SwitchStateBinary,
     torquing: bool,
     torque_dipole: mgt::Dipole,
     pub gen_magnetic_field: Output<mgm::SensorValuesMicroTesla>,
     pub clear_magnetic_field: Output<()>,
-    reply_sender: mpsc::Sender<SimReply>,
+    pub reply: Output<SimReply>,
 }
 
+#[Model]
 impl MgtModel {
-    pub fn new(reply_sender: mpsc::Sender<SimReply>) -> Self {
+    pub fn new() -> Self {
         Self {
             switch_state: SwitchStateBinary::Off,
             torquing: false,
             torque_dipole: mgt::Dipole::default(),
             gen_magnetic_field: Output::new(),
             clear_magnetic_field: Output::new(),
-            reply_sender,
+            reply: Output::new(),
         }
     }
 
     pub async fn apply_torque(
         &mut self,
         duration_and_dipole: (Duration, mgt::Dipole),
-        cx: &mut Context<Self>,
+        cx: &Context<Self>,
     ) {
         self.torque_dipole = duration_and_dipole.1;
         self.torquing = true;
         if cx
-            .schedule_event(duration_and_dipole.0, Self::clear_torque, ())
+            .schedule_event(duration_and_dipole.0, schedulable!(Self::clear_torque), ())
             .is_err()
         {
             log::warn!("torque clearing can only be set for a future time.");
@@ -47,7 +50,8 @@ impl MgtModel {
         self.generate_magnetic_field(()).await;
     }
 
-    pub async fn clear_torque(&mut self, _: ()) {
+    #[nexosim(schedulable)]
+    async fn clear_torque(&mut self) {
         self.torque_dipole = mgt::Dipole::default();
         self.torquing = false;
         self.clear_magnetic_field.send(()).await;
@@ -57,25 +61,30 @@ impl MgtModel {
         self.switch_state = switch_state;
         match switch_state {
             SwitchStateBinary::On => self.generate_magnetic_field(()).await,
-            SwitchStateBinary::Off => self.clear_torque(()).await,
+            SwitchStateBinary::Off => self.clear_torque().await,
         }
     }
 
-    pub async fn request_housekeeping_data(&mut self, _: (), cx: &mut Context<Self>) {
+    pub async fn request_housekeeping_data(&mut self, _: (), cx: &Context<Self>) {
         if self.switch_state != SwitchStateBinary::On {
             return;
         }
-        cx.schedule_event(Duration::from_millis(15), Self::send_housekeeping_data, ())
-            .expect("requesting housekeeping data failed")
+        cx.schedule_event(
+            Duration::from_millis(15),
+            schedulable!(Self::send_housekeeping_data),
+            (),
+        )
+        .expect("requesting housekeeping data failed")
     }
 
-    pub fn send_housekeeping_data(&mut self) {
-        self.reply_sender
+    #[nexosim(schedulable)]
+    async fn send_housekeeping_data(&mut self) {
+        self.reply
             .send(SimReply::from(mgt::Reply::Hk(mgt::HkSet {
                 dipole: self.torque_dipole,
                 torquing: self.torquing,
             })))
-            .unwrap();
+            .await;
     }
 
     fn calc_magnetic_field(&self, _: mgt::Dipole) -> mgm::SensorValuesMicroTesla {
@@ -95,8 +104,6 @@ impl MgtModel {
             .await;
     }
 }
-
-impl Model for MgtModel {}
 
 #[cfg(test)]
 mod tests {
