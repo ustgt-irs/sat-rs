@@ -3,15 +3,15 @@ use std::{
     time::{Duration, SystemTime},
 };
 
+use minisim_types::{
+    acs::{mgm, mgt},
+    eps::PcduRequest,
+    SimCtrlReply, SimCtrlRequest, SimReply, SimRequest, SimRequestWithTime,
+};
 use nexosim::{
     ports::{event_queue, EventQueueReader, EventSinkReader, EventSource, SinkState},
     simulation::{EventId, ExecutionError, Mailbox, SimInit, Simulation},
     time::{Clock, Deadline, MonotonicTime, SystemClock},
-};
-use satrs_minisim::{
-    acs::{mgm, mgt},
-    eps::PcduRequest,
-    SimCtrlReply, SimCtrlRequest, SimReply, SimRequest, SimRequestWithTime,
 };
 use types::pcdu::{SwitchId, SwitchStateBinary};
 

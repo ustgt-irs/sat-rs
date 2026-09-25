@@ -1,10 +1,10 @@
+use minisim_types::acs::mgm as sim_mgm;
+use minisim_types::acs::mgm::{FIELD_LSB_PER_GAUSS_4_SENS, GAUSS_TO_MICROTESLA_FACTOR};
+use minisim_types::{SimReply, SimRequest, SimRequestWithTime};
 use satrs::fdir::{FaultCounterStd, FaultResponse, RecoveryEvent, RecoveryFdir};
 use satrs::health::HealthTableMapSync;
 use satrs::spacepackets::CcsdsPacketIdAndPsc;
 use satrs_example::{HkHelperSingleSet, TimestampHelper, TmtcQueues};
-use satrs_minisim::acs::mgm as sim_mgm;
-use satrs_minisim::acs::mgm::{FIELD_LSB_PER_GAUSS_4_SENS, GAUSS_TO_MICROTESLA_FACTOR};
-use satrs_minisim::{SimReply, SimRequest, SimRequestWithTime};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -652,9 +652,9 @@ mod tests {
     };
 
     use arbitrary_int::u11;
+    use minisim_types::acs::mgm as sim_mgm;
     use satrs::health::{HealthState, HealthTableProvider};
     use satrs::spacepackets::SpacePacketHeader;
-    use satrs_minisim::acs::mgm as sim_mgm;
     use types::{
         Apid, ComponentId, TcHeader,
         acs::mgm::request::HkRequest,

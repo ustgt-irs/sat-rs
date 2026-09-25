@@ -1,5 +1,3 @@
-use hashbrown::HashMap;
-
 use strum::IntoEnumIterator as _;
 
 #[bitbybit::bitfield(u16, debug, default = 0x0)]
@@ -76,7 +74,10 @@ impl crate::EventId for Event {
     }
 }
 
-pub type SwitchMapBinary = HashMap<SwitchId, SwitchStateBinary>;
+pub const MAX_NUM_OF_SWITCHES: usize = 16;
+
+pub type SwitchMapBinary =
+    heapless::index_map::FnvIndexMap<SwitchId, SwitchStateBinary, MAX_NUM_OF_SWITCHES>;
 
 pub struct SwitchMapBinaryWrapper(pub SwitchMapBinary);
 
@@ -84,7 +85,9 @@ impl Default for SwitchMapBinaryWrapper {
     fn default() -> Self {
         let mut switch_map = SwitchMapBinary::default();
         for entry in SwitchId::iter() {
-            switch_map.insert(entry, SwitchStateBinary::Off);
+            switch_map
+                .insert(entry, SwitchStateBinary::Off)
+                .expect("switch map capacity exceeded");
         }
         Self(switch_map)
     }

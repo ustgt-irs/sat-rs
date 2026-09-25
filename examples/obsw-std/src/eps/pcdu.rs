@@ -5,13 +5,13 @@ use std::{
 };
 
 use derive_new::new;
-use num_enum::{IntoPrimitive, TryFromPrimitive};
-use satrs::spacepackets::CcsdsPacketIdAndPsc;
-use satrs_example::TimestampHelper;
-use satrs_minisim::{
+use minisim_types::{
     SimReply, SimRequestWithTime,
     eps::{PcduReply, PcduRequest},
 };
+use num_enum::{IntoPrimitive, TryFromPrimitive};
+use satrs::spacepackets::CcsdsPacketIdAndPsc;
+use satrs_example::TimestampHelper;
 use serde::{Deserialize, Serialize};
 use strum::IntoEnumIterator as _;
 use types::{
@@ -134,7 +134,7 @@ impl SerialInterface for SerialInterfaceToSim {
     type Error = ();
 
     fn send(&self, data: &[u8]) -> Result<(), Self::Error> {
-        let request: PcduRequest = serde_json::from_slice(data).expect("expected a PCDU request");
+        let request: PcduRequest = postcard::from_bytes(data).expect("expected a PCDU request");
         self.sim_request_tx
             .send(SimRequestWithTime::new_with_epoch_time(request))
             .expect("failed to send request to simulation");
@@ -148,8 +148,8 @@ impl SerialInterface for SerialInterfaceToSim {
         loop {
             match self.sim_reply_rx.try_recv() {
                 Ok(reply) => {
-                    let reply = serde_json::to_string(&reply).unwrap();
-                    f(reply.as_bytes());
+                    let reply = postcard::to_allocvec(&reply).unwrap();
+                    f(&reply);
                 }
                 Err(e) => match e {
                     mpsc::TryRecvError::Empty => break,
@@ -175,11 +175,13 @@ impl SerialInterface for SerialInterfaceDummy {
     type Error = ();
 
     fn send(&self, data: &[u8]) -> Result<(), Self::Error> {
-        let pcdu_req: PcduRequest = serde_json::from_slice(data).unwrap();
+        let pcdu_req: PcduRequest = postcard::from_bytes(data).unwrap();
         let switch_map_mut = &mut self.switch_map.borrow_mut().0;
         match pcdu_req {
             PcduRequest::SwitchDevice { switch, state } => {
-                switch_map_mut.insert(switch, state);
+                switch_map_mut
+                    .insert(switch, state)
+                    .expect("switch map capacity exceeded");
             }
             PcduRequest::RequestSwitchInfo => {
                 let mut reply_deque_mut = self.reply_deque.borrow_mut();
@@ -199,8 +201,8 @@ impl SerialInterface for SerialInterfaceDummy {
             return Ok(());
         }
         loop {
-            let reply = self.get_next_reply_as_string();
-            f(reply.as_bytes());
+            let reply = self.next_reply_serialized();
+            f(&reply);
             if self.reply_queue_empty() {
                 break;
             }
@@ -210,10 +212,10 @@ impl SerialInterface for SerialInterfaceDummy {
 }
 
 impl SerialInterfaceDummy {
-    fn get_next_reply_as_string(&self) -> String {
+    fn next_reply_serialized(&self) -> Vec<u8> {
         let mut reply_deque_mut = self.reply_deque.borrow_mut();
         let next_reply = reply_deque_mut.pop_front().unwrap();
-        serde_json::to_string(&next_reply).unwrap()
+        postcard::to_allocvec(&next_reply).unwrap()
     }
 
     fn reply_queue_empty(&self) -> bool {
@@ -430,8 +432,8 @@ impl<ComInterface: SerialInterface> PcduHandler<ComInterface> {
 
     pub fn handle_periodic_commands(&self) {
         let pcdu_req = PcduRequest::RequestSwitchInfo;
-        let pcdu_req_ser = serde_json::to_string(&pcdu_req).unwrap();
-        if let Err(_e) = self.com_interface.send(pcdu_req_ser.as_bytes()) {
+        let pcdu_req_ser = postcard::to_allocvec(&pcdu_req).unwrap();
+        if let Err(_e) = self.com_interface.send(&pcdu_req_ser) {
             log::warn!("polling PCDU switch info failed");
             if let Err(e) = self.event_tx.send(pcdu::Event::SerialCommError) {
                 log::warn!("failed to send comm error event: {}", e);
@@ -477,9 +479,9 @@ impl<ComInterface: SerialInterface> PcduHandler<ComInterface> {
             switch: switch_id,
             state,
         };
-        let pcdu_req_ser = serde_json::to_string(&pcdu_req).unwrap();
+        let pcdu_req_ser = postcard::to_allocvec(&pcdu_req).unwrap();
         self.com_interface
-            .send(pcdu_req_ser.as_bytes())
+            .send(&pcdu_req_ser)
             .expect("failed to send switch request to PCDU");
     }
 
@@ -502,7 +504,7 @@ impl<ComInterface: SerialInterface> PcduHandler<ComInterface> {
 
     pub fn poll_and_handle_replies(&mut self) {
         if let Err(e) = self.com_interface.try_recv_replies(|reply| {
-            let sim_reply: SimReply = serde_json::from_slice(reply).expect("invalid reply format");
+            let sim_reply: SimReply = postcard::from_bytes(reply).expect("invalid reply format");
             let SimReply::Pcdu(pcdu_reply) = sim_reply else {
                 log::warn!("unexpected PCDU SIM reply: {sim_reply:?}");
                 return;
@@ -552,7 +554,7 @@ mod tests {
     pub struct SerialInterfaceTest {
         pub inner: SerialInterfaceDummy,
         pub send_queue: RefCell<VecDeque<Vec<u8>>>,
-        pub reply_queue: RefCell<VecDeque<String>>,
+        pub reply_queue: RefCell<VecDeque<Vec<u8>>>,
         /// Makes the next `send` call fail, to exercise comm-error handling.
         pub fail_next_send: RefCell<bool>,
     }
@@ -577,9 +579,9 @@ mod tests {
                 return Ok(());
             }
             loop {
-                let reply = self.inner.get_next_reply_as_string();
+                let reply = self.inner.next_reply_serialized();
                 self.reply_queue.borrow_mut().push_back(reply.clone());
-                f(reply.as_bytes());
+                f(&reply);
                 if self.inner.reply_queue_empty() {
                     break;
                 }
@@ -635,7 +637,7 @@ mod tests {
             assert_eq!(send_queue_mut.len(), expected_queue_len);
             let packet_sent = send_queue_mut.pop_front().unwrap();
             drop(send_queue_mut);
-            let pcdu_req: PcduRequest = serde_json::from_slice(&packet_sent).unwrap();
+            let pcdu_req: PcduRequest = postcard::from_bytes(&packet_sent).unwrap();
             assert_eq!(pcdu_req, PcduRequest::RequestSwitchInfo);
         }
 
@@ -650,7 +652,7 @@ mod tests {
             assert_eq!(send_queue_mut.len(), expected_queue_len);
             let packet_sent = send_queue_mut.pop_front().unwrap();
             drop(send_queue_mut);
-            let pcdu_req: PcduRequest = serde_json::from_slice(&packet_sent).unwrap();
+            let pcdu_req: PcduRequest = postcard::from_bytes(&packet_sent).unwrap();
             assert_eq!(
                 pcdu_req,
                 PcduRequest::SwitchDevice {
@@ -669,7 +671,7 @@ mod tests {
             let mut reply_received_mut = self.handler.com_interface.reply_queue.borrow_mut();
             assert_eq!(reply_received_mut.len(), expected_queue_len);
             let reply_received = reply_received_mut.pop_front().unwrap();
-            let sim_reply: SimReply = serde_json::from_str(&reply_received).unwrap();
+            let sim_reply: SimReply = postcard::from_bytes(&reply_received).unwrap();
             assert_eq!(
                 sim_reply,
                 SimReply::Pcdu(PcduReply::SwitchInfo(expected_map))

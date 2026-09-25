@@ -1,10 +1,10 @@
+use minisim_types::{
+    acs::{mgm, mgt},
+    SimReply,
+};
 use nexosim::{
     model::{schedulable, Context, Model},
     ports::Output,
-};
-use satrs_minisim::{
-    acs::{mgm, mgt},
-    SimReply,
 };
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -109,7 +109,7 @@ impl MgtModel {
 mod tests {
     use std::time::Duration;
 
-    use satrs_minisim::{
+    use minisim_types::{
         acs::{mgm, mgt},
         eps::PcduRequest,
         SimReply, SimRequest, SimRequestWithTime,

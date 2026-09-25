@@ -1,5 +1,7 @@
-use nexosim::time::MonotonicTime;
+#![no_std]
+
 use serde::{Deserialize, Serialize};
+use tai_time::MonotonicTime;
 
 use crate::{
     acs::{mgm, mgt},
@@ -223,48 +225,11 @@ pub mod acs {
                     z: value,
                 }
             }
-
-            pub fn from_microtesla(values: SensorValuesMicroTesla) -> Self {
-                let to_raw = |microtesla: f32| {
-                    (microtesla / (GAUSS_TO_MICROTESLA_FACTOR as f32 * FIELD_LSB_PER_GAUSS_4_SENS))
-                        .round() as i16
-                };
-                Self {
-                    x: to_raw(values.x),
-                    y: to_raw(values.y),
-                    z: to_raw(values.z),
-                }
-            }
-        }
-
-        impl Reply {
-            pub fn new(
-                switch_state: SwitchStateBinary,
-                sensor_values: SensorValuesMicroTesla,
-                fault_mode: SpiFaultMode,
-            ) -> Self {
-                // An injected fault always wins. A switched off device reads back like an
-                // undriven bus.
-                let raw = match (fault_mode, switch_state) {
-                    (SpiFaultMode::AllZeros, _) => RawValues::splat(ALL_ZEROS_SENSOR_VAL),
-                    (SpiFaultMode::AllOnes, _) | (SpiFaultMode::None, SwitchStateBinary::Off) => {
-                        RawValues::splat(ALL_ONES_SENSOR_VAL)
-                    }
-                    (SpiFaultMode::None, SwitchStateBinary::On) => {
-                        RawValues::from_microtesla(sensor_values)
-                    }
-                };
-                Self {
-                    switch_state,
-                    sensor_values,
-                    raw,
-                }
-            }
         }
     }
 
     pub mod mgt {
-        use std::time::Duration;
+        use core::time::Duration;
 
         use serde::{Deserialize, Serialize};
 
@@ -300,14 +265,16 @@ pub mod udp {
 }
 
 #[cfg(test)]
-pub mod tests {
+mod tests {
+    extern crate alloc;
+
     use super::*;
 
     #[test]
     fn test_request_serde_roundtrip() {
         let sim_request = SimRequestWithTime::new_with_epoch_time(SimCtrlRequest::Ping);
-        let json = serde_json::to_string(&sim_request).unwrap();
-        let deserialized: SimRequestWithTime = serde_json::from_str(&json).unwrap();
+        let bytes = postcard::to_allocvec(&sim_request).unwrap();
+        let deserialized: SimRequestWithTime = postcard::from_bytes(&bytes).unwrap();
         assert_eq!(deserialized, sim_request);
     }
 
@@ -315,8 +282,8 @@ pub mod tests {
     fn test_reply_serde_roundtrip() {
         let sim_reply = SimReply::from(SimCtrlReply::Pong);
         assert_eq!(sim_reply.component(), ComponentId::SimCtrl);
-        let json = serde_json::to_string(&sim_reply).unwrap();
-        let deserialized: SimReply = serde_json::from_str(&json).unwrap();
+        let bytes = postcard::to_allocvec(&sim_reply).unwrap();
+        let deserialized: SimReply = postcard::from_bytes(&bytes).unwrap();
         assert_eq!(deserialized, sim_reply);
     }
 }

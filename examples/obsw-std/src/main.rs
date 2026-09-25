@@ -181,8 +181,8 @@ fn main() {
     let (mgm_0_spi_interface, mgm_1_spi_interface) = if let Some(sim_client) =
         opt_sim_client.as_mut()
     {
-        sim_client.add_reply_recipient(satrs_minisim::ComponentId::Mgm0Lis3Mdl, mgm_0_sim_reply_tx);
-        sim_client.add_reply_recipient(satrs_minisim::ComponentId::Mgm1Lis3Mdl, mgm_1_sim_reply_tx);
+        sim_client.add_reply_recipient(minisim_types::ComponentId::Mgm0Lis3Mdl, mgm_0_sim_reply_tx);
+        sim_client.add_reply_recipient(minisim_types::ComponentId::Mgm1Lis3Mdl, mgm_1_sim_reply_tx);
         (
             mgm::SpiCommunication::Sim(mgm::SpiSimInterface {
                 id: mgm::MgmId::_0,
@@ -258,7 +258,7 @@ fn main() {
     });
 
     let mgt_com = if let Some(sim_client) = opt_sim_client.as_mut() {
-        sim_client.add_reply_recipient(satrs_minisim::ComponentId::Mgt, mgt_sim_reply_tx);
+        sim_client.add_reply_recipient(minisim_types::ComponentId::Mgt, mgt_sim_reply_tx);
         mgt::MgtCommunication::Sim(mgt::SimInterface {
             sim_request_tx: sim_request_tx.clone(),
             sim_reply_rx: mgt_sim_reply_rx,
@@ -299,7 +299,7 @@ fn main() {
     );
 
     let pcdu_serial_interface = if let Some(sim_client) = opt_sim_client.as_mut() {
-        sim_client.add_reply_recipient(satrs_minisim::ComponentId::Pcdu, pcdu_sim_reply_tx);
+        sim_client.add_reply_recipient(minisim_types::ComponentId::Pcdu, pcdu_sim_reply_tx);
         SerialSimInterfaceWrapper::Sim(SerialInterfaceToSim::new(
             sim_request_tx.clone(),
             pcdu_sim_reply_rx,

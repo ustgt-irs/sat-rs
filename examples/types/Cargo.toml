@@ -13,4 +13,4 @@ postcard = { version = "1", features = ["alloc"] }
 thiserror = { version = "2", default-features = false }
 bitbybit = "2"
 arbitrary-int = "2"
-hashbrown = { version = "0.17", features = ["serde"] }
+heapless = { version = "0.9", features = ["serde"] }

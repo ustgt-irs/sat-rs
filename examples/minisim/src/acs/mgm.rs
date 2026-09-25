@@ -1,10 +1,10 @@
 use std::f32::consts::PI;
 
+use minisim_types::{acs::mgm, SimReply};
 use nexosim::{
     model::{Context, Model},
     ports::Output,
 };
-use satrs_minisim::{acs::mgm, SimReply};
 use serde::{Deserialize, Serialize};
 use types::pcdu::SwitchStateBinary;
 
@@ -59,7 +59,7 @@ impl MgmModel {
     pub async fn send_sensor_values(&mut self, _: (), cx: &Context<Self>) {
         let reply = SimReply::Mgm {
             id: self.id,
-            reply: mgm::Reply::new(
+            reply: create_reply(
                 self.switch_state,
                 self.calculate_current_mgm_tuple(current_millis(cx.time())),
                 self.spi_fault.mode,
@@ -98,11 +98,46 @@ impl MgmModel {
     }
 }
 
+/// Builds the reply of the simulated LIS3MDL, including the raw register values.
+fn create_reply(
+    switch_state: SwitchStateBinary,
+    sensor_values: mgm::SensorValuesMicroTesla,
+    fault_mode: mgm::SpiFaultMode,
+) -> mgm::Reply {
+    // An injected fault always wins. A switched off device reads back like an undriven bus.
+    let raw = match (fault_mode, switch_state) {
+        (mgm::SpiFaultMode::AllZeros, _) => mgm::RawValues::splat(mgm::ALL_ZEROS_SENSOR_VAL),
+        (mgm::SpiFaultMode::AllOnes, _) | (mgm::SpiFaultMode::None, SwitchStateBinary::Off) => {
+            mgm::RawValues::splat(mgm::ALL_ONES_SENSOR_VAL)
+        }
+        (mgm::SpiFaultMode::None, SwitchStateBinary::On) => {
+            raw_values_from_microtesla(sensor_values)
+        }
+    };
+    mgm::Reply {
+        switch_state,
+        sensor_values,
+        raw,
+    }
+}
+
+fn raw_values_from_microtesla(values: mgm::SensorValuesMicroTesla) -> mgm::RawValues {
+    let to_raw = |microtesla: f32| {
+        (microtesla / (mgm::GAUSS_TO_MICROTESLA_FACTOR as f32 * mgm::FIELD_LSB_PER_GAUSS_4_SENS))
+            .round() as i16
+    };
+    mgm::RawValues {
+        x: to_raw(values.x),
+        y: to_raw(values.y),
+        z: to_raw(values.z),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
 
-    use satrs_minisim::{acs::mgm, SimReply, SimRequest};
+    use minisim_types::{acs::mgm, SimReply, SimRequest};
     use types::pcdu::{SwitchId, SwitchStateBinary};
 
     use crate::{

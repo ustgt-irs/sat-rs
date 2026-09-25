@@ -1,11 +1,11 @@
 use anyhow::{Context as _, bail};
 use arbitrary_int::u11;
 use clap::Parser as _;
-use satrs_example::config::{OBSW_SERVER_ADDR, SERVER_PORT};
-use satrs_minisim::{
+use minisim_types::{
     SimCtrlReply, SimCtrlRequest, SimReply, SimRequest, SimRequestWithTime, acs::mgm,
     udp::SIM_CTRL_PORT,
 };
+use satrs_example::config::{OBSW_SERVER_ADDR, SERVER_PORT};
 use spacepackets::{CcsdsPacketIdAndPsc, SpacePacketHeader};
 use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket},
@@ -611,10 +611,10 @@ fn inject_mgm_failure(target_id: types::ComponentId, fault: mgm::SpiFault) -> an
 
     let mut reply_buf = [0u8; 4096];
     let ping = SimRequestWithTime::new_with_epoch_time(SimCtrlRequest::Ping);
-    sim_socket.send_to(&serde_json::to_vec(&ping)?, sim_addr)?;
+    sim_socket.send_to(&postcard::to_allocvec(&ping)?, sim_addr)?;
     match sim_socket.recv(&mut reply_buf) {
         Ok(len) => {
-            let reply: SimReply = serde_json::from_slice(&reply_buf[..len])?;
+            let reply: SimReply = postcard::from_bytes(&reply_buf[..len])?;
             if reply != SimReply::SimCtrl(SimCtrlReply::Pong) {
                 bail!("unexpected reply while checking minisim connectivity: {reply:?}");
             }
@@ -639,7 +639,7 @@ fn inject_mgm_failure(target_id: types::ComponentId, fault: mgm::SpiFault) -> an
         id,
         request: mgm::Request::SetSpiFault(fault),
     });
-    sim_socket.send_to(&serde_json::to_vec(&request)?, sim_addr)?;
+    sim_socket.send_to(&postcard::to_allocvec(&request)?, sim_addr)?;
     log::info!("injected SPI fault {fault:?} into minisim {target_id:?}");
     Ok(())
 }

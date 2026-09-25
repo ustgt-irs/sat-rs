@@ -1,11 +1,11 @@
 use delegate::delegate;
 use std::sync::mpsc;
 
+use minisim_types::{SimReply, SimRequest, SimRequestWithTime};
 use nexosim::{
     simulation::ExecutionError,
     time::{Deadline, MonotonicTime},
 };
-use satrs_minisim::{SimReply, SimRequest, SimRequestWithTime};
 
 use crate::controller::{SimController, ThreadingModel};
 

@@ -2,10 +2,10 @@ use std::collections::VecDeque;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
+use minisim_types::acs::mgt as sim_mgt;
+use minisim_types::{SimReply, SimRequestWithTime};
 use satrs::spacepackets::CcsdsPacketIdAndPsc;
 use satrs_example::{HkHelperSingleSet, TmtcQueues};
-use satrs_minisim::acs::mgt as sim_mgt;
-use satrs_minisim::{SimReply, SimRequestWithTime};
 use types::acs::mgt::{
     self, HkSet,
     request::{ModeRequest, Request},

@@ -1,0 +1,12 @@
+[package]
+name = "minisim-types"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = { version = "1", default-features = false, features = ["derive"] }
+tai-time = { version = "1", default-features = false, features = ["serde"] }
+types = { path = "../types" }
+
+[dev-dependencies]
+postcard = { version = "1", features = ["alloc"] }

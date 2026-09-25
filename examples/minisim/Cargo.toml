@@ -7,18 +7,18 @@ edition = "2021"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+postcard = { version = "1", features = ["alloc"] }
 log = "0.4"
 thiserror = "2"
 fern = "0.7"
 strum = { version = "0.28", features = ["derive"] }
 num_enum = "0.7"
 humantime = "2"
-tai-time = { version = "0.3", features = ["serde"] }
 nexosim = "1"
 
 satrs = { path = "../../satrs" }
 types = { path = "../types" }
+minisim-types = { path = "../minisim-types" }
 
 [dev-dependencies]
 delegate = "0.13"

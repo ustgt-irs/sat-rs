@@ -5,9 +5,9 @@ use std::{
     time::Duration,
 };
 
+use minisim_types::{ComponentId, SimReply, SimRequestWithTime, udp::SIM_CTRL_PORT};
+use minisim_types::{SimCtrlReply, SimCtrlRequest};
 use satrs::HandlingStatus;
-use satrs_minisim::{ComponentId, SimReply, SimRequestWithTime, udp::SIM_CTRL_PORT};
-use satrs_minisim::{SimCtrlReply, SimCtrlRequest};
 
 struct SimReplyMap(pub HashMap<ComponentId, mpsc::Sender<SimReply>>);
 
@@ -35,10 +35,10 @@ pub enum SimClientCreationError {
     Io(#[from] std::io::Error),
     #[error("timeout when trying to connect to sim UDP server")]
     Timeout,
-    #[error("invalid ping reply when trying connection to UDP sim server")]
-    InvalidReplyJsonError(#[from] serde_json::Error),
+    #[error("invalid ping reply when trying connection to UDP sim server: {0}")]
+    InvalidReply(#[from] postcard::Error),
     #[error("invalid sim reply, not pong reply as expected: {0:?}")]
-    ReplyIsNotPong(SimReply),
+    ReplyIsNotPong(Box<SimReply>),
 }
 
 pub struct SimClientUdp {
@@ -74,14 +74,14 @@ impl SimClientUdp {
         reply_buf: &mut [u8],
     ) -> Result<(), SimClientCreationError> {
         let sim_req = SimRequestWithTime::new_with_epoch_time(SimCtrlRequest::Ping);
-        let sim_req_json = serde_json::to_string(&sim_req).expect("failed to serialize SimRequest");
-        udp_client.send_to(sim_req_json.as_bytes(), simulator_addr)?;
+        let sim_req_raw = postcard::to_allocvec(&sim_req).expect("failed to serialize SimRequest");
+        udp_client.send_to(&sim_req_raw, simulator_addr)?;
         match udp_client.recv(reply_buf) {
             Ok(reply_len) => {
-                let sim_reply: SimReply = serde_json::from_slice(&reply_buf[0..reply_len])?;
+                let sim_reply: SimReply = postcard::from_bytes(&reply_buf[0..reply_len])?;
                 match sim_reply {
                     SimReply::SimCtrl(SimCtrlReply::Pong) => Ok(()),
-                    _ => Err(SimClientCreationError::ReplyIsNotPong(sim_reply)),
+                    _ => Err(SimClientCreationError::ReplyIsNotPong(Box::new(sim_reply))),
                 }
             }
             Err(e) => {
@@ -102,12 +102,9 @@ impl SimClientUdp {
         loop {
             match self.sim_request_rx.try_recv() {
                 Ok(request) => {
-                    let request_json =
-                        serde_json::to_string(&request).expect("failed to serialize SimRequest");
-                    if let Err(e) = self
-                        .udp_client
-                        .send_to(request_json.as_bytes(), self.simulator_addr)
-                    {
+                    let request_raw =
+                        postcard::to_allocvec(&request).expect("failed to serialize SimRequest");
+                    if let Err(e) = self.udp_client.send_to(&request_raw, self.simulator_addr) {
                         log::error!("error sending data to UDP SIM server: {e}");
                         break;
                     } else {
@@ -129,8 +126,8 @@ impl SimClientUdp {
             match self.udp_client.recv(&mut self.reply_buf) {
                 Ok(recvd_bytes) => {
                     no_data_from_udp_server_received = false;
-                    let sim_reply_result: serde_json::Result<SimReply> =
-                        serde_json::from_slice(&self.reply_buf[0..recvd_bytes]);
+                    let sim_reply_result: postcard::Result<SimReply> =
+                        postcard::from_bytes(&self.reply_buf[0..recvd_bytes]);
                     match sim_reply_result {
                         Ok(sim_reply) => {
                             if let Some(sender) = self.reply_map.0.get(&sim_reply.component()) {
@@ -185,7 +182,7 @@ pub mod tests {
         time::Duration,
     };
 
-    use satrs_minisim::{
+    use minisim_types::{
         ComponentId, SimCtrlReply, SimCtrlRequest, SimReply, SimRequest, SimRequestWithTime,
         eps::{PcduReply, PcduRequest},
     };
@@ -234,10 +231,10 @@ pub mod tests {
                     loop {
                         match self.reply_rx.try_recv() {
                             Ok(sim_reply) => {
-                                let sim_reply_json = serde_json::to_string(&sim_reply)
+                                let sim_reply_raw = postcard::to_allocvec(&sim_reply)
                                     .expect("failed to serialize SimReply");
                                 self.udp_server
-                                    .send_to(sim_reply_json.as_bytes(), last_sender)
+                                    .send_to(&sim_reply_raw, last_sender)
                                     .expect("failed to send reply to client from UDP server");
                                 no_sim_replies_handled = false;
                             }
@@ -255,17 +252,17 @@ pub mod tests {
                     match self.udp_server.recv_from(&mut self.recv_buf) {
                         Ok((read_bytes, from)) => {
                             let sim_request: SimRequestWithTime =
-                                serde_json::from_slice(&self.recv_buf[0..read_bytes])
+                                postcard::from_bytes(&self.recv_buf[0..read_bytes])
                                     .expect("failed to deserialize SimRequest");
                             // For a ping, we perform the reply handling here directly
                             if sim_request.request == SimRequest::SimCtrl(SimCtrlRequest::Ping) {
                                 no_data_received = false;
                                 self.last_sender = Some(from);
                                 let sim_reply = SimReply::from(SimCtrlReply::Pong);
-                                let sim_reply_json = serde_json::to_string(&sim_reply)
+                                let sim_reply_raw = postcard::to_allocvec(&sim_reply)
                                     .expect("failed to serialize SimReply");
                                 self.udp_server
-                                    .send_to(sim_reply_json.as_bytes(), from)
+                                    .send_to(&sim_reply_raw, from)
                                     .expect("failed to send reply to client from UDP server");
                             }
                             // Forward each SIM request for testing purposes.

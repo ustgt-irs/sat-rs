@@ -1,10 +1,10 @@
 use std::time::Duration;
 
+use minisim_types::{eps::PcduReply, SimReply};
 use nexosim::{
     model::{schedulable, Context, Model},
     ports::Output,
 };
-use satrs_minisim::{eps::PcduReply, SimReply};
 use serde::{Deserialize, Serialize};
 use types::pcdu::{SwitchId, SwitchMapBinary, SwitchMapBinaryWrapper, SwitchStateBinary};
 
@@ -76,7 +76,7 @@ pub(crate) mod tests {
     use super::*;
     use std::time::Duration;
 
-    use satrs_minisim::{eps::PcduRequest, SimRequestWithTime};
+    use minisim_types::{eps::PcduRequest, SimRequestWithTime};
     use types::pcdu::SwitchMapBinary;
 
     use crate::test_helpers::SimTestbench;

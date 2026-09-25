@@ -1,6 +1,6 @@
 use controller::{SimController, ThreadingModel};
+use minisim_types::udp::SIM_CTRL_PORT;
 use nexosim::time::MonotonicTime;
-use satrs_minisim::udp::SIM_CTRL_PORT;
 use std::sync::mpsc;
 use std::thread;
 use udp::SimUdpServer;

@@ -6,7 +6,7 @@ use std::{
     time::Duration,
 };
 
-use satrs_minisim::{SimReply, SimRequestWithTime};
+use minisim_types::{SimReply, SimRequestWithTime};
 
 // A UDP server which handles all TC received by a client application.
 pub struct SimUdpServer {
@@ -89,7 +89,7 @@ impl SimUdpServer {
 
             self.sender_addr = Some(src);
 
-            let sim_req = serde_json::from_slice::<SimRequestWithTime>(&self.req_buf[..bytes_read]);
+            let sim_req = postcard::from_bytes::<SimRequestWithTime>(&self.req_buf[..bytes_read]);
             if let Err(e) = sim_req {
                 log::warn!("received UDP request with invalid format: {}", e);
                 return processed_requests;
@@ -130,9 +130,7 @@ impl SimUdpServer {
             let next_reply_to_send = self.reply_queue.pop_front().unwrap();
             self.socket
                 .send_to(
-                    serde_json::to_string(&next_reply_to_send)
-                        .unwrap()
-                        .as_bytes(),
+                    &postcard::to_allocvec(&next_reply_to_send).unwrap(),
                     self.sender_addr.unwrap(),
                 )
                 .expect("sending reply failed");
@@ -154,7 +152,7 @@ mod tests {
         time::Duration,
     };
 
-    use satrs_minisim::{
+    use minisim_types::{
         eps::{PcduReply, PcduRequest},
         SimCtrlReply, SimCtrlRequest, SimReply, SimRequestWithTime,
     };
@@ -171,8 +169,8 @@ mod tests {
     pub enum ReceptionError {
         #[error("IO error: {0}")]
         Io(#[from] std::io::Error),
-        #[error("Serde JSON error: {0}")]
-        SerdeJson(#[from] serde_json::Error),
+        #[error("postcard error: {0}")]
+        Postcard(#[from] postcard::Error),
     }
 
     pub struct SimUdpTestClient {
@@ -203,7 +201,8 @@ mod tests {
 
         pub fn send_request(&self, sim_request: &SimRequestWithTime) -> std::io::Result<usize> {
             self.socket.send(
-                &serde_json::to_vec(sim_request).expect("conversion of request to vector failed"),
+                &postcard::to_allocvec(sim_request)
+                    .expect("conversion of request to vector failed"),
             )
         }
 
@@ -213,7 +212,7 @@ mod tests {
 
         pub fn recv_sim_reply(&mut self) -> Result<SimReply, ReceptionError> {
             let read_len = self.recv_raw()?;
-            Ok(serde_json::from_slice(&self.reply_buf[0..read_len])?)
+            Ok(postcard::from_bytes(&self.reply_buf[0..read_len])?)
         }
     }
     struct UdpTestbench {
@@ -302,8 +301,8 @@ mod tests {
                             panic!("unexpected request server error: {e}");
                         }
                     }
-                    ReceptionError::SerdeJson(json_error) => {
-                        panic!("unexpected JSON error: {json_error}");
+                    ReceptionError::Postcard(postcard_error) => {
+                        panic!("unexpected postcard error: {postcard_error}");
                     }
                 },
             }
