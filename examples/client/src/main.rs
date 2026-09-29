@@ -67,12 +67,29 @@ enum Commands {
     EventManager(EventManagerArgs),
     /// Blinking LEDs of the embedded examples.
     Led(LedArgs),
+    Sim(SimArgs),
 }
 
 #[derive(clap::Parser)]
 struct EventManagerArgs {
     #[command(subcommand)]
     action: EventFilterAction,
+}
+
+#[derive(clap::Parser)]
+struct SimArgs {
+    #[command(subcommand)]
+    action: SimAction,
+}
+
+#[derive(clap::Subcommand)]
+enum SimAction {
+    /// Let the OBSW connect to the minisim.
+    Connect {
+        /// IP address of the minisim host. Defaults to the address of this client if nothing
+        /// is specified.
+        ip: Option<Ipv4Addr>,
+    },
 }
 
 #[derive(clap::Subcommand)]
@@ -335,6 +352,24 @@ fn send_led_request(client: &UdpSocket, addr: SocketAddr, request: types::led::r
     let sent_tc_id = CcsdsPacketIdAndPsc::new_from_ccsds_packet(&packet.sp_header);
     log::info!(
         "sending LED request {:?} with TC ID {:#010x}",
+        request,
+        sent_tc_id.raw()
+    );
+    client.send_to(&packet.to_vec(), addr).unwrap();
+}
+
+fn handle_sim_command(client: &UdpSocket, addr: SocketAddr, args: SimArgs) {
+    let request = match args.action {
+        SimAction::Connect { ip } => types::control::request::Request::SimConnect(ip),
+    };
+    let packet = types::ccsds::CcsdsTcPacketOwned::new_with_request(
+        SpacePacketHeader::new_from_apid(u11::new(Apid::Tmtc as u16)),
+        TcHeader::new(types::ComponentId::Controller, MessageType::Action),
+        request,
+    );
+    let sent_tc_id = CcsdsPacketIdAndPsc::new_from_ccsds_packet(&packet.sp_header);
+    log::info!(
+        "sending SIM request {:?} with TC ID {:#010x}",
         request,
         sent_tc_id.raw()
     );
@@ -676,6 +711,7 @@ fn main() -> anyhow::Result<()> {
             }
             Commands::EventManager(args) => handle_event_manager_command(&client, addr, args),
             Commands::Led(args) => handle_led_command(&client, addr, args),
+            Commands::Sim(args) => handle_sim_command(&client, addr, args),
         }
     }
 

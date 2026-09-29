@@ -24,6 +24,7 @@ pub mod request {
     pub enum Request {
         Ping,
         TestEvent,
+        SimConnect(Option<core::net::Ipv4Addr>),
     }
 }
 

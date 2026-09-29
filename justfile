@@ -11,16 +11,16 @@ test:
   cargo nextest run --all-features
   cargo test --doc --all-features
 
-embedded: embedded-stm32h7 embedded-stm32h7-embassy
+embedded: embedded-stm32h7
   cargo check -p satrs --target=thumbv7em-none-eabihf --no-default-features
 
-[working-directory:"examples/stm32h7-nucleo-rtic"]
+[working-directory:"examples/embedded"]
 embedded-stm32h7:
   cargo build --target=thumbv7em-none-eabihf --release
 
-[working-directory:"examples/stm32h7-nucleo-embassy"]
-embedded-stm32h7-embassy:
-  cargo build --target=thumbv7em-none-eabihf --release
+clean:
+  cargo clean
+  cargo clean --manifest-path examples/embedded/Cargo.toml
 
 check-fmt:
   cargo fmt --all -- --check

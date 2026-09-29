@@ -1,0 +1,20 @@
+[package]
+name = "shared-embedded"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+types.workspace = true
+minisim-types.workspace = true
+
+arbitrary-int.workspace = true
+defmt.workspace = true
+spacepackets.workspace = true
+postcard.workspace = true
+serde.workspace = true
+
+embassy-stm32.workspace = true
+embassy-time.workspace = true
+embassy-net.workspace = true
+embassy-sync.workspace = true
+embassy-futures.workspace = true

@@ -27,3 +27,6 @@ rrb = "run --release --bin"
 
 [env]
 DEFMT_LOG = "info"
+# IP address of the host running the minisim. Without it, the firmware does not try to connect
+# to a simulator.
+# SIM_IP_ADDR = "192.168.1.10"

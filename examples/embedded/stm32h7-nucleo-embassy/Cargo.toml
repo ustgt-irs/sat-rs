@@ -1,0 +1,32 @@
+[package]
+name = "stm32h7-nucleo-embassy"
+edition = "2024"
+version = "0.1.0"
+default-run = "stm32h7-nucleo-embassy"
+
+[lib]
+harness = false
+
+# needed for each integration test
+[[test]]
+name = "integration"
+harness = false
+
+[dependencies]
+shared-embedded.workspace = true
+
+cortex-m.workspace = true
+cortex-m-rt.workspace = true
+defmt.workspace = true
+defmt-rtt.workspace = true
+panic-probe.workspace = true
+embedded-alloc.workspace = true
+static_cell.workspace = true
+
+embassy-stm32 = { workspace = true, features = ["memory-x", "time-driver-any"] }
+embassy-executor.workspace = true
+embassy-time = { workspace = true, features = ["defmt-timestamp-uptime-ms"] }
+embassy-net.workspace = true
+
+[dev-dependencies]
+defmt-test.workspace = true

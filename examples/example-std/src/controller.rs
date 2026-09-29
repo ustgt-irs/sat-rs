@@ -43,16 +43,17 @@ impl Controller {
                                 tc_id.raw()
                             );
                             match request {
-                                control::request::Request::Ping => self
-                                    .send_telemetry(Some(tc_id), control::response::Response::Ok),
+                                control::request::Request::Ping => (),
                                 control::request::Request::TestEvent => {
                                     self.event_ctrl_tx.send(control::Event::TestEvent).unwrap();
-                                    self.send_telemetry(
-                                        Some(tc_id),
-                                        control::response::Response::Ok,
-                                    );
+                                }
+                                control::request::Request::SimConnect(_ipv4_addr) => {
+                                    // TODO: Does this make sense here? I guess it does to try
+                                    // a connect when the minisim is started after the OBSW?
+                                    log::warn!("sim connect request not supported yet");
                                 }
                             }
+                            self.send_telemetry(Some(tc_id), control::response::Response::Ok);
                         }
                         Err(e) => {
                             log::warn!("failed to deserialize request: {}", e);

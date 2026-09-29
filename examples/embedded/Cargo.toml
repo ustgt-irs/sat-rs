@@ -1,41 +1,36 @@
-[package]
-name = "stm32h7-nucleo-rtic"
-edition = "2024"
-version = "0.1.0"
-default-run = "stm32h7-nucleo-rtic"
+[workspace]
+resolver = "3"
+members = [
+    "shared-embedded",
+    "stm32h7-nucleo-embassy",
+    "stm32h7-nucleo-rtic",
+]
 
-[lib]
-harness = false
-
-# needed for each integration test
-[[test]]
-name = "integration"
-harness = false
-
-[dependencies]
+[workspace.dependencies]
 types = { path = "../types" }
+minisim-types = { path = "../minisim-types" }
+shared-embedded = { path = "shared-embedded" }
 
 cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
-arbitrary-int = "2"
 cortex-m-rt = "0.7"
+arbitrary-int = "2"
 defmt = "1"
 defmt-rtt = "1"
+defmt-test = "0.5"
 panic-probe = { version = "1", features = ["print-defmt"] }
 embedded-alloc = "0.7"
 static_cell = "2"
-rtic = { version = "2", features = ["thumbv7-backend"] }
 spacepackets = { version = "0.18", default-features = false, features = ["defmt"] }
 postcard = "1"
 serde = { version = "1", default-features = false }
+rtic = { version = "2", features = ["thumbv7-backend"] }
 
-embassy-stm32 = { version = "0.6", features = ["stm32h753zi", "memory-x", "defmt", "time-driver-any"] }
-embassy-time = { version = "0.5", features = ["defmt-timestamp-uptime-ms", "generic-queue-16"] }
+embassy-stm32 = { version = "0.6", features = ["stm32h753zi", "defmt"] }
+embassy-executor = { version = "0.10", features = ["platform-cortex-m", "executor-thread", "defmt"] }
+embassy-time = "0.5"
 embassy-net = { version = "0.9", features = ["medium-ethernet", "proto-ipv4", "tcp", "udp", "auto-icmp-echo-reply", "dhcpv4", "defmt"] }
 embassy-sync = "0.8"
 embassy-futures = "0.1"
-
-[dev-dependencies]
-defmt-test = "0.5"
 
 # cargo build/run
 [profile.dev]
