@@ -10,12 +10,9 @@ members = [
     "examples/minisim-types",
     "satrs-shared",
     "tmtc-utils",
-    "examples/embedded-client",
-    "examples/embedded-types",
 ]
 
 exclude = [
-    "examples/stm32f3-disco-rtic",
     "examples/stm32h7-nucleo-rtic",
     "examples/stm32h7-nucleo-embassy",
 ]
