@@ -13,7 +13,7 @@ name = "integration"
 harness = false
 
 [dependencies]
-embedded-types = { path = "../embedded-types", features = ["defmt"] }
+types = { path = "../types" }
 
 cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
 arbitrary-int = "2"
@@ -25,6 +25,7 @@ embedded-alloc = "0.7"
 static_cell = "2"
 spacepackets = { version = "0.18", default-features = false, features = ["defmt"] }
 postcard = "1"
+serde = { version = "1", default-features = false }
 
 embassy-stm32 = { version = "0.6", features = ["stm32h753zi", "memory-x", "defmt", "time-driver-any"] }
 embassy-executor = { version = "0.10", features = ["platform-cortex-m", "executor-thread", "defmt"] }

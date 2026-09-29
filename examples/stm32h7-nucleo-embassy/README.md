@@ -76,29 +76,36 @@ Make sure to install this plugin first.
 The board is commanded via UDP on port 7301. It gets its IP address via DHCP, so it needs to be
 connected to a network with a DHCP server. The network configuration including the IP address is
 logged after startup. According to the board user manual UM2407, jumper JP6 and solder bridge SB72
-must be ON when using Ethernet. The telecommands are CCSDS space packets with a
-[`postcard`](https://docs.rs/postcard) serialized payload.
+must be ON when using Ethernet. The board uses the same TMTC protocol as the
+[`example-std`](../example-std) application, which is defined inside the [`types`](../types)
+crate.
 
-The [`embedded-client`](../embedded-client) application is used to command the board. Set the
-address of the board inside `embedded-client/config.toml`, for example:
+The [`client`](../client) application is used to command the board. Set the address of the board
+inside `client/config.toml`, which is created from `client/config.toml.template` on the first
+build:
 
 ```toml
 [interface]
 udp_addr = "192.168.1.50:7301"
 ```
 
-Then run the client from inside the `embedded-client` directory. For example, you can send a ping
-to the MCU using
+For example, you can then send a ping to the MCU using
 
 ```sh
-cargo run --bin stm32h7-client -- --ping
+cargo run -p client -- --ping
 ```
 
-and set the LED blink frequency to 500 ms using
+Like the `example-std` application, the board has a controller component which handles pings and
+test events. A test event can be triggered with `--test-event`.
+
+The green LED blinks every 0.5 seconds as a heartbeat. The red and the orange LED are controlled
+with a mode. For example, you can let both toggle together every 200 ms using
 
 ```sh
-cargo run --bin stm32h7-client -- --set-led-frequency 500
+cargo run -p client -- led --mode unified-toggle --toggle-period-ms 200
 ```
+
+Use `cargo run -p client -- led --help` to list all modes.
 
 You can also pass the board address with `--udp-addr` instead of setting it inside the
 configuration file.

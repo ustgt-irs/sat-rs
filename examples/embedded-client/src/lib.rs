@@ -1,4 +1,4 @@
-use std::{fs::File, io::Read as _, net::SocketAddr, path::Path, time::SystemTime};
+use std::{fs::File, io::Read as _, path::Path, time::SystemTime};
 
 #[derive(Debug, serde::Deserialize)]
 pub struct Config {
@@ -8,7 +8,6 @@ pub struct Config {
 #[derive(Debug, serde::Deserialize)]
 pub struct Interface {
     pub serial_port: Option<String>,
-    pub udp_addr: Option<SocketAddr>,
 }
 
 impl Config {

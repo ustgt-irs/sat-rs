@@ -5,6 +5,23 @@ use defmt_rtt as _;
 use embassy_stm32 as _;
 use panic_probe as _;
 
+use core::mem::MaybeUninit;
+use embedded_alloc::LlffHeap as Heap;
+
+const HEAP_SIZE: usize = 131_072;
+
+// Part of the library, because all binaries depend on crates which require an allocator.
+#[global_allocator]
+static HEAP: Heap = Heap::empty();
+
+/// # Safety
+///
+/// Must be called exactly once, before the first allocation.
+pub unsafe fn init_heap() {
+    static mut HEAP_MEM: [MaybeUninit<u8>; HEAP_SIZE] = [MaybeUninit::uninit(); HEAP_SIZE];
+    unsafe { HEAP.init(&raw mut HEAP_MEM as usize, HEAP_SIZE) }
+}
+
 // same panicking *behavior* as `panic-probe` but doesn't print a panic message
 // this prevents the panic message being printed *twice* when `defmt::panic` is invoked
 #[defmt::panic_handler]
