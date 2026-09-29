@@ -23,9 +23,38 @@ pub struct Cli {
     ping: bool,
     #[arg(short, long)]
     test_event: bool,
+    /// Address of the commanded application. Overrides the address inside `config.toml`.
+    #[arg(long, global = true)]
+    udp_addr: Option<SocketAddr>,
 
     #[command(subcommand)]
     commands: Option<Commands>,
+}
+
+#[derive(Debug, Default, serde::Deserialize)]
+struct Config {
+    #[serde(default)]
+    interface: InterfaceConfig,
+}
+
+#[derive(Debug, Default, serde::Deserialize)]
+struct InterfaceConfig {
+    /// Defaults to the example-std OBSW on the local host.
+    udp_addr: Option<SocketAddr>,
+}
+
+impl Config {
+    /// The build script creates `config.toml` from the template. A missing file is still accepted,
+    /// because all parameters have defaults.
+    fn load() -> anyhow::Result<Self> {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("config.toml");
+        match std::fs::read_to_string(&path) {
+            Ok(content) => toml::from_str(&content)
+                .with_context(|| format!("parsing {} failed", path.display())),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Self::default()),
+            Err(e) => Err(e).with_context(|| format!("reading {} failed", path.display())),
+        }
+    }
 }
 
 #[derive(clap::Subcommand)]
@@ -36,6 +65,8 @@ enum Commands {
     Mgt(MgtArgs),
     AcsSubsystem(SubsystemArgs),
     EventManager(EventManagerArgs),
+    /// Blinking LEDs of the embedded examples.
+    Led(LedArgs),
 }
 
 #[derive(clap::Parser)]
@@ -195,6 +226,27 @@ struct MgtArgs {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, clap::Parser)]
+struct LedArgs {
+    #[arg(short, long)]
+    ping: bool,
+    /// Mode of the red and the orange LED.
+    #[arg(short, long, value_enum)]
+    mode: Option<LedModeSelect>,
+    /// Toggle period of the toggle modes.
+    #[arg(long, default_value_t = 500)]
+    toggle_period_ms: u64,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, clap::ValueEnum)]
+enum LedModeSelect {
+    AllOff,
+    RedOn,
+    OrangeOn,
+    AlternatingToggle,
+    UnifiedToggle,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, clap::Parser)]
 struct MgmAssemblyArgs {
     #[arg(short, long)]
     ping: bool,
@@ -272,6 +324,40 @@ fn send_mgt_request(
         sent_tc_id.raw()
     );
     client.send_to(&packet.to_vec(), addr).unwrap();
+}
+
+fn send_led_request(client: &UdpSocket, addr: SocketAddr, request: types::led::request::Request) {
+    let packet = types::ccsds::CcsdsTcPacketOwned::new_with_request(
+        SpacePacketHeader::new_from_apid(u11::new(Apid::Tmtc as u16)),
+        TcHeader::new(types::ComponentId::Led, request.message_type()),
+        request,
+    );
+    let sent_tc_id = CcsdsPacketIdAndPsc::new_from_ccsds_packet(&packet.sp_header);
+    log::info!(
+        "sending LED request {:?} with TC ID {:#010x}",
+        request,
+        sent_tc_id.raw()
+    );
+    client.send_to(&packet.to_vec(), addr).unwrap();
+}
+
+fn handle_led_command(client: &UdpSocket, addr: SocketAddr, args: LedArgs) {
+    use types::led::request::Request;
+
+    if args.ping {
+        send_led_request(client, addr, Request::Ping);
+    }
+    if let Some(mode) = args.mode {
+        let toggle_period = Duration::from_millis(args.toggle_period_ms);
+        let mode = match mode {
+            LedModeSelect::AllOff => types::led::Mode::AllOff,
+            LedModeSelect::RedOn => types::led::Mode::RedOn,
+            LedModeSelect::OrangeOn => types::led::Mode::OrangeOn,
+            LedModeSelect::AlternatingToggle => types::led::Mode::AlternatingToggle(toggle_period),
+            LedModeSelect::UnifiedToggle => types::led::Mode::UnifiedToggle(toggle_period),
+        };
+        send_led_request(client, addr, Request::SetMode(mode));
+    }
 }
 
 fn handle_mgt_command(client: &UdpSocket, addr: SocketAddr, args: MgtArgs) -> anyhow::Result<()> {
@@ -456,9 +542,14 @@ fn main() -> anyhow::Result<()> {
     let ctrl_kill_signal = kill_signal.clone();
     ctrlc::set_handler(move || ctrl_kill_signal.store(true, Ordering::Relaxed)).unwrap();
     let cli = Cli::parse();
+    let config = Config::load()?;
 
-    let addr = SocketAddr::new(IpAddr::V4(OBSW_SERVER_ADDR), SERVER_PORT);
-    let client = UdpSocket::bind("127.0.0.1:7302").expect("Connecting to UDP server failed");
+    let addr = cli
+        .udp_addr
+        .or(config.interface.udp_addr)
+        .unwrap_or(SocketAddr::new(IpAddr::V4(OBSW_SERVER_ADDR), SERVER_PORT));
+    // Bind to all interfaces, so embedded targets inside the local network can be reached too.
+    let client = UdpSocket::bind("0.0.0.0:7302").expect("Connecting to UDP server failed");
     client.set_nonblocking(true)?;
     client.set_read_timeout(Some(Duration::from_millis(200)))?;
 
@@ -584,6 +675,7 @@ fn main() -> anyhow::Result<()> {
                 }
             }
             Commands::EventManager(args) => handle_event_manager_command(&client, addr, args),
+            Commands::Led(args) => handle_led_command(&client, addr, args),
         }
     }
 
@@ -763,6 +855,11 @@ fn handle_raw_tm_packet(data: &[u8]) -> anyhow::Result<()> {
                         postcard::from_bytes::<types::acs::mgt::response::Response>(remainder);
                     log::info!("Received response from MGT: {:?}", response.unwrap());
                 }
+                types::ComponentId::Led => {
+                    let response =
+                        postcard::from_bytes::<types::led::response::Response>(remainder);
+                    log::info!("Received response from LED: {:?}", response.unwrap());
+                }
             }
         }
         Err(_) => todo!(),
@@ -786,6 +883,19 @@ mod tests {
         );
         assert!(parse_dipole("1,2").is_err());
         assert!(parse_dipole("1,2,3,4").is_err());
+    }
+
+    #[test]
+    fn test_config_template_is_valid() {
+        let template = include_str!("../config.toml.template");
+        let config: Config = toml::from_str(template).unwrap();
+        assert_eq!(config.interface.udp_addr, None);
+        let config: Config =
+            toml::from_str("[interface]\nudp_addr = \"192.168.1.50:7301\"").unwrap();
+        assert_eq!(
+            config.interface.udp_addr,
+            Some("192.168.1.50:7301".parse().unwrap())
+        );
     }
 
     #[test]

@@ -75,6 +75,8 @@ pub enum CcsdsCreationError {
     Postcard(#[from] postcard::Error),
     #[error("timestamp generation error")]
     Time,
+    #[error("user data length {0} exceeds the maximum CCSDS packet length")]
+    PacketTooLarge(usize),
 }
 
 /// Unserialized owned TM packet which can be cloned and sent around.
@@ -121,10 +123,19 @@ impl CcsdsTmPacketOwned {
         .unwrap()
     }
 
+    /// Panics if the packet is too large. Use [Self::try_to_vec] where a panic is not acceptable.
     pub fn to_vec(&self) -> alloc::vec::Vec<u8> {
-        let mut buf = alloc::vec![0u8; self.len_written()];
-        let len = self.write_to_bytes(&mut buf).unwrap();
+        self.try_to_vec().expect("creating TM packet failed")
+    }
+
+    pub fn try_to_vec(&self) -> Result<alloc::vec::Vec<u8>, CcsdsCreationError> {
+        let user_data_len =
+            postcard::experimental::serialized_size(&self.tm_header)? + self.payload.len();
+        let packet_len = ccsds_packet_len_for_user_data_len_with_checksum(user_data_len)
+            .ok_or(CcsdsCreationError::PacketTooLarge(user_data_len))?;
+        let mut buf = alloc::vec![0u8; packet_len];
+        let len = self.write_to_bytes(&mut buf)?;
         buf.truncate(len);
-        buf
+        Ok(buf)
     }
 }

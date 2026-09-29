@@ -48,9 +48,9 @@ All examples and their helper crates are located inside the
 * [`minisim`](https://egit.irs.uni-stuttgart.de/rust/sat-rs/src/branch/main/examples/minisim):
    Mini-Simulator based on [nexosim](https://github.com/asynchronics/nexosim) which
    simulates some physical devices for the `example-std` application device handlers.
-* [`client`](https://egit.irs.uni-stuttgart.de/rust/sat-rs/src/branch/main/examples/client): Ground client to command the `example-std` application.
+* [`client`](https://egit.irs.uni-stuttgart.de/rust/sat-rs/src/branch/main/examples/client): Ground client to command the `example-std` application and the STM32H7 examples.
 * [`types`](https://egit.irs.uni-stuttgart.de/rust/sat-rs/src/branch/main/examples/types): Telecommand and telemetry definitions shared by the
-   `example-std` application and the `client`.
+   `example-std` application, the STM32H7 examples and the `client`.
 * [`stm32f3-disco-rtic`](https://egit.irs.uni-stuttgart.de/rust/sat-rs/src/branch/main/examples/stm32f3-disco-rtic):
    Simple example using low-level sat-rs components on a bare-metal system with constrained
    resources. This example uses the [RTIC](https://github.com/rtic-rs/rtic) framework on the
@@ -63,8 +63,8 @@ All examples and their helper crates are located inside the
    Same as `stm32h7-nucleo-rtic`, but using the [embassy](https://embassy.dev/) executor instead
    of RTIC.
 * [`embedded-client`](https://egit.irs.uni-stuttgart.de/rust/sat-rs/src/branch/main/examples/embedded-client) and
-   [`embedded-types`](https://egit.irs.uni-stuttgart.de/rust/sat-rs/src/branch/main/examples/embedded-types): Client and shared telecommand and telemetry
-   definitions for the embedded examples.
+   [`embedded-types`](https://egit.irs.uni-stuttgart.de/rust/sat-rs/src/branch/main/examples/embedded-types): Client and telecommand and telemetry
+   definitions for the STM32F3 example, which uses its own protocol.
 
 The library crates and the `example-std` application have their own `CHANGELOG.md`.
 

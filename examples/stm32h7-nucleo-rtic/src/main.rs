@@ -2,21 +2,16 @@
 #![no_std]
 extern crate alloc;
 
-use rtic::app;
-// global logger + panicking-behavior + memory layout
 use embassy_stm32::bind_interrupts;
-use stm32h7_nucleo_rtic as _;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::signal::Signal;
+use rtic::app;
+use types::led;
 
-use core::mem::MaybeUninit;
-use embedded_alloc::LlffHeap as Heap;
-
-const DEFAULT_BLINK_FREQ_MS: u32 = 1000;
+const HEARTBEAT_PERIOD: embassy_time::Duration = embassy_time::Duration::from_millis(500);
+const DEFAULT_LED_MODE: led::Mode =
+    led::Mode::AlternatingToggle(core::time::Duration::from_millis(1000));
 const PORT: u16 = 7301;
-
-const HEAP_SIZE: usize = 131_072;
-
-#[global_allocator]
-static HEAP: Heap = Heap::empty();
 
 /// Locally administered MAC address
 const MAC_ADDRESS: [u8; 6] = [0x02, 0x00, 0x11, 0x22, 0x33, 0x44];
@@ -24,11 +19,15 @@ const MAC_ADDRESS: [u8; 6] = [0x02, 0x00, 0x11, 0x22, 0x33, 0x44];
 const TC_QUEUE_DEPTH: usize = 32;
 const TM_QUEUE_DEPTH: usize = 32;
 
+static LED_MODE: Signal<CriticalSectionRawMutex, led::Mode> = Signal::new();
+
 #[app(device = embassy_stm32, peripherals = false)]
 mod app {
 
     use super::*;
     use arbitrary_int::u14;
+    use defmt::Debug2Format;
+    use embassy_futures::select::{Either, select};
     use embassy_net::StackResources;
     use embassy_net::udp::UdpSocket;
     use embassy_stm32::eth;
@@ -39,15 +38,12 @@ mod app {
     use embassy_time::Duration;
     use embassy_time::Timer;
     use embassy_time::WithTimeout as _;
-    use embedded_types::TmHeader;
-    use embedded_types::create_tm_packet;
-    use embedded_types::stm32h7;
-    use embedded_types::tm_size;
-    use spacepackets::CcsdsPacketCreationError;
     use spacepackets::CcsdsPacketIdAndPsc;
     use spacepackets::CcsdsPacketReader;
     use spacepackets::SpHeader;
     use static_cell::StaticCell;
+    use types::ccsds::{CcsdsCreationError, CcsdsTmPacketOwned};
+    use types::{Apid, ComponentId, Message, TcHeader, TmHeader, control, tmtc};
 
     bind_interrupts!(struct Irqs {
         ETH => eth::InterruptHandler;
@@ -60,17 +56,17 @@ mod app {
         eth::GenericPhy<eth::Sma<'static, peripherals::ETH_SMA>>,
     >;
 
-    struct BlinkyLeds {
-        led1: gpio::Output<'static>,
-        led2: gpio::Output<'static>,
+    struct Leds {
+        red: gpio::Output<'static>,
+        orange: gpio::Output<'static>,
     }
 
     #[local]
     struct Local {
         net_runner: embassy_net::Runner<'static, Device>,
         net_stack: embassy_net::Stack<'static>,
-        leds: BlinkyLeds,
-        link_led: gpio::Output<'static>,
+        leds: Leds,
+        green_led: gpio::Output<'static>,
         tc_rx: embassy_sync::channel::Receiver<
             'static,
             NoopRawMutex,
@@ -89,23 +85,18 @@ mod app {
             alloc::vec::Vec<u8>,
             TM_QUEUE_DEPTH,
         >,
-        tm_tx: embassy_sync::channel::Sender<
-            'static,
-            NoopRawMutex,
-            alloc::vec::Vec<u8>,
-            TM_QUEUE_DEPTH,
-        >,
+        telemetry: Telemetry,
     }
 
     #[shared]
-    struct Shared {
-        sequence_count: u14,
-        blink_freq: embassy_time::Duration,
-    }
+    struct Shared {}
 
     #[init]
     fn init(_cx: init::Context) -> (Shared, Local) {
         defmt::println!("Starting sat-rs demo application for the STM32H753ZIT");
+
+        // Safety: Called once, before the first allocation.
+        unsafe { stm32h7_nucleo_rtic::init_heap() };
 
         let mut config = embassy_stm32::Config::default();
         {
@@ -131,14 +122,11 @@ mod app {
         }
         let periphs = embassy_stm32::init(config);
 
-        let link_led = gpio::Output::new(periphs.PB0, gpio::Level::Low, gpio::Speed::Medium);
-        let mut led1 = gpio::Output::new(periphs.PE1, gpio::Level::Low, gpio::Speed::Medium);
-        let mut led2 = gpio::Output::new(periphs.PB14, gpio::Level::Low, gpio::Speed::Medium);
-
-        // Criss-cross pattern looks cooler.
-        led1.set_high();
-        led2.set_low();
-        let leds = BlinkyLeds { led1, led2 };
+        let green_led = gpio::Output::new(periphs.PB0, gpio::Level::Low, gpio::Speed::Medium);
+        let leds = Leds {
+            red: gpio::Output::new(periphs.PB14, gpio::Level::Low, gpio::Speed::Medium),
+            orange: gpio::Output::new(periphs.PE1, gpio::Level::Low, gpio::Speed::Medium),
+        };
 
         static PACKETS: StaticCell<eth::PacketQueue<4, 4>> = StaticCell::new();
         // warning: Not all STM32H7 devices have the exact same pins here
@@ -173,11 +161,6 @@ mod app {
         let (stack, runner) =
             embassy_net::new(device, config, RESOURCES.init(StackResources::new()), seed);
 
-        // Set up global allocator. Use AXISRAM for the heap.
-        #[unsafe(link_section = ".axisram")]
-        static mut HEAP_MEM: [MaybeUninit<u8>; HEAP_SIZE] = [MaybeUninit::uninit(); HEAP_SIZE];
-        unsafe { HEAP.init(&raw mut HEAP_MEM as usize, HEAP_SIZE) }
-
         static TC_CHANNEL: static_cell::ConstStaticCell<
             embassy_sync::channel::Channel<NoopRawMutex, alloc::vec::Vec<u8>, TC_QUEUE_DEPTH>,
         > = static_cell::ConstStaticCell::new(embassy_sync::channel::Channel::new());
@@ -194,35 +177,79 @@ mod app {
 
         net_lib_task::spawn().expect("spawning net library task failed");
         net_app_task::spawn().expect("spawning net application task failed");
-        blinky::spawn().expect("spawning blink task failed");
+        heartbeat::spawn().expect("spawning heartbeat task failed");
+        led_task::spawn().expect("spawning LED task failed");
         tc_handler::spawn().expect("spawning TC handler task failed");
 
         (
-            Shared {
-                blink_freq: Duration::from_millis(DEFAULT_BLINK_FREQ_MS as u64),
-                sequence_count: u14::new(0),
-            },
+            Shared {},
             Local {
-                link_led,
+                green_led,
                 leds,
                 net_runner: runner,
                 net_stack: stack,
                 tc_tx: tc_sender,
                 tc_rx: tc_receiver,
-                tm_tx: tm_sender,
+                telemetry: Telemetry {
+                    tx: tm_sender,
+                    sequence_count: u14::new(0),
+                },
                 tm_rx: tm_receiver,
             },
         )
     }
 
-    #[task(local = [leds], shared=[blink_freq])]
-    async fn blinky(mut cx: blinky::Context) {
-        let leds = cx.local.leds;
+    #[task(local = [green_led])]
+    async fn heartbeat(cx: heartbeat::Context) {
         loop {
-            leds.led1.toggle();
-            leds.led2.toggle();
-            let current_blink_freq = cx.shared.blink_freq.lock(|current| *current);
-            Timer::after_millis(current_blink_freq.as_millis()).await;
+            cx.local.green_led.toggle();
+            Timer::after(HEARTBEAT_PERIOD).await;
+        }
+    }
+
+    /// Applies the current mode to the red and orange LED. A new mode is applied immediately.
+    #[task(local = [leds])]
+    async fn led_task(cx: led_task::Context) {
+        let leds = cx.local.leds;
+        let mut mode = DEFAULT_LED_MODE;
+        loop {
+            let toggle_period = match mode {
+                led::Mode::AllOff => {
+                    leds.red.set_low();
+                    leds.orange.set_low();
+                    None
+                }
+                led::Mode::RedOn => {
+                    leds.red.set_high();
+                    leds.orange.set_low();
+                    None
+                }
+                led::Mode::OrangeOn => {
+                    leds.red.set_low();
+                    leds.orange.set_high();
+                    None
+                }
+                led::Mode::AlternatingToggle(period) => {
+                    leds.red.toggle();
+                    leds.orange.set_level((!leds.red.is_set_high()).into());
+                    Some(period)
+                }
+                led::Mode::UnifiedToggle(period) => {
+                    leds.red.toggle();
+                    leds.orange.set_level(leds.red.is_set_high().into());
+                    Some(period)
+                }
+            };
+            mode = match toggle_period {
+                Some(period) => {
+                    let period = Duration::try_from(period).unwrap_or(Duration::MAX);
+                    match select(Timer::after(period), LED_MODE.wait()).await {
+                        Either::First(()) => mode,
+                        Either::Second(new_mode) => new_mode,
+                    }
+                }
+                None => LED_MODE.wait().await,
+            };
         }
     }
 
@@ -231,7 +258,7 @@ mod app {
         cx.local.net_runner.run().await;
     }
 
-    #[task(local = [net_stack, link_led, tc_tx, tm_rx])]
+    #[task(local = [net_stack, tc_tx, tm_rx])]
     async fn net_app_task(cx: net_app_task::Context) {
         pub const MTU: usize = 1500;
 
@@ -254,7 +281,6 @@ mod app {
 
         loop {
             cx.local.net_stack.wait_link_up().await;
-            cx.local.link_led.set_high();
             defmt::info!("Network link is up");
 
             // Ensure DHCP configuration is up before trying connect
@@ -270,13 +296,16 @@ mod app {
                 tx_udp_meta,
                 tx_udp_bufs,
             );
+            if let Err(e) = udp.bind(PORT) {
+                defmt::error!("Failed to bind UDP socket: {}", e);
+                Timer::after_secs(1).await;
+                continue;
+            }
             defmt::info!("UDP socket bound to port {}", PORT);
-            udp.bind(PORT).expect("failed to bind UDP socket");
             let mut remote_endpoint = None;
             loop {
                 if !cx.local.net_stack.is_link_up() {
                     defmt::warn!("Network link is down");
-                    cx.local.link_led.set_low();
                     break;
                 }
                 match udp
@@ -311,75 +340,127 @@ mod app {
         }
     }
 
-    #[task(local = [tc_rx, tm_tx], shared=[sequence_count, blink_freq])]
-    async fn tc_handler(mut cx: tc_handler::Context) {
+    #[task(local = [tc_rx, telemetry])]
+    async fn tc_handler(cx: tc_handler::Context) {
+        let telemetry = cx.local.telemetry;
         loop {
             let tc = cx.local.tc_rx.receive().await;
-
-            match CcsdsPacketReader::new_with_checksum(&tc) {
-                Ok(packet) => {
-                    let packet_id = packet.packet_id();
-                    let psc = packet.psc();
-                    let tc_packet_id = CcsdsPacketIdAndPsc { packet_id, psc };
-                    if let Ok(request) =
-                        postcard::from_bytes::<stm32h7::Request>(packet.packet_data())
-                    {
-                        let response = match request {
-                            stm32h7::Request::Ping => {
-                                defmt::info!("Received Ping request");
-                                stm32h7::Response::Ok
-                            }
-                            stm32h7::Request::ChangeBlinkFrequency(duration) => {
-                                defmt::info!(
-                                    "Received blinky frequency change request: {} ms",
-                                    duration.as_millis()
-                                );
-                                cx.shared.blink_freq.lock(|current| {
-                                    *current = Duration::from_millis(duration.as_millis() as u64)
-                                });
-                                stm32h7::Response::Ok
-                            }
-                        };
-                        let sequence_count = cx.shared.sequence_count.lock(|v| {
-                            let current = *v;
-                            *v = v.wrapping_add(u14::new(1));
-                            current
-                        });
-
-                        // Send Pong/OK response immediately.
-                        if let Err(e) =
-                            send_tm(tc_packet_id, response, sequence_count, cx.local.tm_tx).await
-                        {
-                            defmt::warn!("Failed to send TM response: {}", e);
-                        }
-                    }
+            let packet = match CcsdsPacketReader::new_with_checksum(&tc) {
+                Ok(packet) => packet,
+                Err(e) => {
+                    defmt::warn!("Failed to parse received TC packet: {}", e);
+                    send_tmtc_event(telemetry, tmtc::Event::InvalidTcPacket).await;
+                    continue;
                 }
-                Err(e) => defmt::warn!("Failed to parse received TC packet: {}", e,),
+            };
+            let tc_id = CcsdsPacketIdAndPsc {
+                packet_id: packet.packet_id(),
+                psc: packet.psc(),
+            };
+            let Ok((tc_header, payload)) =
+                postcard::take_from_bytes::<TcHeader>(packet.user_data())
+            else {
+                defmt::warn!("Failed to deserialize TC header");
+                send_tmtc_event(telemetry, tmtc::Event::InvalidTcHeader).await;
+                continue;
+            };
+            match tc_header.target_id {
+                ComponentId::Controller => handle_controller_tc(payload, tc_id, telemetry).await,
+                ComponentId::Led => handle_led_tc(payload, tc_id, telemetry).await,
+                target_id => {
+                    defmt::warn!("No TC handler for target ID {}", Debug2Format(&target_id));
+                    send_tmtc_event(telemetry, tmtc::Event::UnknownTargetId(target_id)).await;
+                }
             }
-            defmt::info!("Received from UDP client: {}", tc.as_slice());
         }
     }
 
-    async fn send_tm(
-        tc_packet_id: CcsdsPacketIdAndPsc,
-        response: stm32h7::Response,
-        current_seq_count: u14,
-        sender: &embassy_sync::channel::Sender<
+    /// All TCs are received via UDP, so the UDP server is the sender of TMTC events.
+    async fn send_tmtc_event(telemetry: &mut Telemetry, event: tmtc::Event) {
+        telemetry.send(ComponentId::UdpServer, None, &event).await;
+    }
+
+    /// The controller does not control anything yet, but handles generic requests like pings.
+    async fn handle_controller_tc(
+        payload: &[u8],
+        tc_id: CcsdsPacketIdAndPsc,
+        telemetry: &mut Telemetry,
+    ) {
+        let Ok(request) = postcard::from_bytes::<control::request::Request>(payload) else {
+            defmt::warn!("Failed to deserialize controller request");
+            return;
+        };
+        match request {
+            control::request::Request::Ping => defmt::info!("Received controller ping request"),
+            control::request::Request::TestEvent => {
+                defmt::info!("Received test event request");
+                let event = types::Event::ControllerEvent(control::Event::TestEvent);
+                telemetry.send(ComponentId::Controller, None, &event).await;
+            }
+        }
+        telemetry
+            .send(
+                ComponentId::Controller,
+                Some(tc_id),
+                &control::response::Response::Ok,
+            )
+            .await;
+    }
+
+    async fn handle_led_tc(payload: &[u8], tc_id: CcsdsPacketIdAndPsc, telemetry: &mut Telemetry) {
+        let Ok(request) = postcard::from_bytes::<led::request::Request>(payload) else {
+            defmt::warn!("Failed to deserialize LED request");
+            return;
+        };
+        match request {
+            led::request::Request::Ping => defmt::info!("Received LED ping request"),
+            led::request::Request::SetMode(mode) => {
+                defmt::info!("Received LED mode request: {}", Debug2Format(&mode));
+                LED_MODE.signal(mode);
+            }
+        }
+        telemetry
+            .send(ComponentId::Led, Some(tc_id), &led::response::Response::Ok)
+            .await;
+    }
+
+    /// Packs TM and passes it to the network task.
+    struct Telemetry {
+        tx: embassy_sync::channel::Sender<
             'static,
             NoopRawMutex,
             alloc::vec::Vec<u8>,
             TM_QUEUE_DEPTH,
         >,
-    ) -> Result<(), CcsdsPacketCreationError> {
-        let sp_header = SpHeader::new_for_unseg_tm(stm32h7::PUS_APID, current_seq_count, 0);
-        let tm_header = TmHeader {
-            tc_packet_id: Some(tc_packet_id),
-            uptime_millis: embassy_time::Instant::now().as_millis(),
-        };
-        let tm_size = tm_size(&tm_header, &response);
-        let mut packet = alloc::vec![0; tm_size];
-        create_tm_packet(&mut packet, sp_header, tm_header, response)?;
-        sender.send(packet).await;
-        Ok(())
+        sequence_count: u14,
+    }
+
+    impl Telemetry {
+        /// TM without a TC ID is sent unsolicited, for example events.
+        async fn send(
+            &mut self,
+            sender_id: ComponentId,
+            tc_id: Option<CcsdsPacketIdAndPsc>,
+            payload: &(impl serde::Serialize + Message),
+        ) {
+            let sp_header =
+                SpHeader::new_for_unseg_tm(Apid::Tmtc.raw_value(), self.sequence_count, 0);
+            let tm_header = TmHeader::new_without_timestamp(
+                sender_id,
+                ComponentId::Ground,
+                payload.message_type(),
+                tc_id,
+            );
+            match CcsdsTmPacketOwned::new_with_serde_payload(sp_header, &tm_header, payload)
+                .map_err(CcsdsCreationError::from)
+                .and_then(|packet| packet.try_to_vec())
+            {
+                Ok(raw_packet) => {
+                    self.tx.send(raw_packet).await;
+                    self.sequence_count = self.sequence_count.wrapping_add(u14::new(1));
+                }
+                Err(e) => defmt::warn!("Failed to create TM packet: {}", Debug2Format(&e)),
+            }
+        }
     }
 }

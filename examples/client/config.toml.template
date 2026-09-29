@@ -1,0 +1,7 @@
+# Copied to config.toml by the build script if config.toml does not exist yet. config.toml is not
+# tracked by git, so it can hold local settings like the address of a development board.
+
+[interface]
+# Address of the commanded application. Defaults to the example-std OBSW on the local host.
+# Can be overridden with the --udp-addr argument.
+# udp_addr = "192.168.1.50:7301"

@@ -25,28 +25,6 @@ pub mod stm32f3 {
     }
 }
 
-/// This might look like a duplication, but we intentionally keep those separate so they can
-/// change independently.
-pub mod stm32h7 {
-    use arbitrary_int::u11;
-    use core::time::Duration;
-
-    pub const PUS_APID: u11 = u11::new(0x03);
-
-    #[derive(Copy, Clone, Debug, serde::Serialize, serde::Deserialize)]
-    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-    pub enum Request {
-        Ping,
-        ChangeBlinkFrequency(Duration),
-    }
-
-    #[derive(Debug, serde::Serialize, serde::Deserialize)]
-    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-    pub enum Response {
-        Ok,
-    }
-}
-
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct TmHeader {

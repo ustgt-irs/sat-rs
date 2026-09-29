@@ -8,7 +8,8 @@ clap = { version = "4", features = ["derive"] }
 log = "0.4"
 fern = "0.7"
 humantime = "2"
-serde = { version = "1" }
+serde = { version = "1", features = ["derive"] }
+toml = "1"
 satrs = { path = "../../satrs" }
 example-std = { path = "../example-std" }
 minisim-types = { path = "../minisim-types" }

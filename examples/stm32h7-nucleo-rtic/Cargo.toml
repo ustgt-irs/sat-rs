@@ -13,7 +13,7 @@ name = "integration"
 harness = false
 
 [dependencies]
-embedded-types = { path = "../embedded-types", features = ["defmt"] }
+types = { path = "../types" }
 
 cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
 arbitrary-int = "2"
@@ -26,11 +26,13 @@ static_cell = "2"
 rtic = { version = "2", features = ["thumbv7-backend"] }
 spacepackets = { version = "0.18", default-features = false, features = ["defmt"] }
 postcard = "1"
+serde = { version = "1", default-features = false }
 
 embassy-stm32 = { version = "0.6", features = ["stm32h753zi", "memory-x", "defmt", "time-driver-any"] }
 embassy-time = { version = "0.5", features = ["defmt-timestamp-uptime-ms", "generic-queue-16"] }
 embassy-net = { version = "0.9", features = ["medium-ethernet", "proto-ipv4", "tcp", "udp", "auto-icmp-echo-reply", "dhcpv4", "defmt"] }
 embassy-sync = "0.8"
+embassy-futures = "0.1"
 
 [dev-dependencies]
 defmt-test = "0.5"

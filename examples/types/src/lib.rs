@@ -11,6 +11,7 @@ pub mod acs;
 pub mod ccsds;
 pub mod control;
 pub mod event_manager;
+pub mod led;
 pub mod pcdu;
 pub mod tmtc;
 
@@ -45,6 +46,9 @@ pub enum ComponentId {
     EventManager,
 
     Ground,
+
+    /// Blinking LEDs of the embedded examples.
+    Led,
 }
 
 #[derive(Debug, PartialEq, Eq, strum::EnumIter)]
@@ -107,6 +111,23 @@ impl TmHeader {
             timestamp: Some(stamp_buf),
         }
     }
+
+    /// For systems without an absolute time source.
+    pub fn new_without_timestamp(
+        sender_id: ComponentId,
+        target_id: ComponentId,
+        message_type: MessageType,
+        tc_id: Option<CcsdsPacketIdAndPsc>,
+    ) -> Self {
+        Self {
+            sender_id,
+            target_id,
+            message_type,
+            tc_id,
+            timestamp: None,
+        }
+    }
+
     pub fn new_for_unsolicited_tm(
         sender_id: ComponentId,
         target_id: ComponentId,

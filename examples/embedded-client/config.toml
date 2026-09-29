@@ -1,3 +1,2 @@
 [interface]
 serial_port = "/dev/ttyUSB0"
-# udp_addr = "192.168.XXX.XX:7301"
