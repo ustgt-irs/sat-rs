@@ -11,7 +11,7 @@ test:
   cargo nextest run --all-features
   cargo test --doc --all-features
 
-embedded: embedded-stm32h7 embedded-stm32h7-embassy embedded-stm32f3
+embedded: embedded-stm32h7 embedded-stm32h7-embassy
   cargo check -p satrs --target=thumbv7em-none-eabihf --no-default-features
 
 [working-directory:"examples/stm32h7-nucleo-rtic"]
@@ -20,10 +20,6 @@ embedded-stm32h7:
 
 [working-directory:"examples/stm32h7-nucleo-embassy"]
 embedded-stm32h7-embassy:
-  cargo build --target=thumbv7em-none-eabihf --release
-
-[working-directory:"examples/stm32f3-disco-rtic"]
-embedded-stm32f3:
   cargo build --target=thumbv7em-none-eabihf --release
 
 check-fmt:

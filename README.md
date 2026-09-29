@@ -51,10 +51,6 @@ All examples and their helper crates are located inside the
 * [`client`](https://egit.irs.uni-stuttgart.de/rust/sat-rs/src/branch/main/examples/client): Ground client to command the `example-std` application and the STM32H7 examples.
 * [`types`](https://egit.irs.uni-stuttgart.de/rust/sat-rs/src/branch/main/examples/types): Telecommand and telemetry definitions shared by the
    `example-std` application, the STM32H7 examples and the `client`.
-* [`stm32f3-disco-rtic`](https://egit.irs.uni-stuttgart.de/rust/sat-rs/src/branch/main/examples/stm32f3-disco-rtic):
-   Simple example using low-level sat-rs components on a bare-metal system with constrained
-   resources. This example uses the [RTIC](https://github.com/rtic-rs/rtic) framework on the
-   STM32F3-Discovery device.
 * [`stm32h7-nucleo-rtic`](https://egit.irs.uni-stuttgart.de/rust/sat-rs/src/branch/main/examples/stm32h7-nucleo-rtic):
    Simple example using sat-rs components on a bare-metal system with constrained resources.
    This example uses the [RTIC](https://github.com/rtic-rs/rtic) framework on the NUCLEO-H753ZI
@@ -62,9 +58,6 @@ All examples and their helper crates are located inside the
 * [`stm32h7-nucleo-embassy`](https://egit.irs.uni-stuttgart.de/rust/sat-rs/src/branch/main/examples/stm32h7-nucleo-embassy):
    Same as `stm32h7-nucleo-rtic`, but using the [embassy](https://embassy.dev/) executor instead
    of RTIC.
-* [`embedded-client`](https://egit.irs.uni-stuttgart.de/rust/sat-rs/src/branch/main/examples/embedded-client) and
-   [`embedded-types`](https://egit.irs.uni-stuttgart.de/rust/sat-rs/src/branch/main/examples/embedded-types): Client and telecommand and telemetry
-   definitions for the STM32F3 example, which uses its own protocol.
 
 The library crates and the `example-std` application have their own `CHANGELOG.md`.
 
