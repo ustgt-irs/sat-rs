@@ -25,12 +25,12 @@ frameworks.
 
 # Getting started with the example
 
-The [`satrs-example`](https://egit.irs.uni-stuttgart.de/rust/sat-rs/src/branch/main/satrs-example)
+The [`example-std`](https://egit.irs.uni-stuttgart.de/rust/sat-rs/src/branch/main/examples/example-std)
 provides various practical usage examples of the `sat-rs` framework. If you are more interested in
 the practical application of `sat-rs` inside an application, it is recommended to have a look at
-the example application. The [`satrs-minisim`](https://egit.irs.uni-stuttgart.de/rust/sat-rs/src/branch/main/satrs-example/minisim)
+the example application. The [`minisim`](https://egit.irs.uni-stuttgart.de/rust/sat-rs/src/branch/main/examples/minisim)
 application complements the example application and can be used to simulate some physical devices
-for the `satrs-example` device handlers.
+for the `example-std` device handlers.
 
 # Flight Heritage
 

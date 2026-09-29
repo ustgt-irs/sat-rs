@@ -1,7 +1,7 @@
 //! # PUS support modules
 //!
 //! This module contains structures to make working with the PUS C standard easier.
-//! The satrs-example application contains various usage examples of these components.
+//! The example-std application contains various usage examples of these components.
 pub mod event;
 
 use self::verification::{TcStateAccepted, TcStateToken, VerificationToken};

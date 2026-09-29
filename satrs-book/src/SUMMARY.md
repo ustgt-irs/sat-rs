@@ -19,4 +19,4 @@
 
 # Example project
 
-- [The satrs-example application](./example.md)
+- [The example-std application](./example.md)
