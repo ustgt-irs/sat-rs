@@ -39,12 +39,8 @@
 //!
 //! # Examples
 //!
-//! You can check [integration test](https://egit.irs.uni-stuttgart.de/rust/sat-rs/src/branch/main/satrs/tests/pus_events.rs)
-//! for a concrete example using multi-threading where events are routed to
-//! different threads.
-//!
 //! The [example-std](https://egit.irs.uni-stuttgart.de/rust/sat-rs/src/branch/main/examples/example-std)
-//! also contains a full event manager instance and exposes a test event via the PUS test service.
+//! contains a full event manager instance and exposes a test event via the PUS test service.
 //! The [PUS event](https://egit.irs.uni-stuttgart.de/rust/sat-rs/src/branch/main/examples/example-std/src/legacy/pus/event.rs)
 //! module and the generic [events module](https://egit.irs.uni-stuttgart.de/rust/sat-rs/src/branch/main/examples/example-std/src/legacy/events.rs)
 //! show how the event management modules can be integrated into a more complex software.

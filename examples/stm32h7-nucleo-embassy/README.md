@@ -1,11 +1,14 @@
-sat-rs example for the STM32H753ZI-Nucleo board
+sat-rs embassy example for the STM32H753ZI-Nucleo board
 =======
 
 This example application shows how the [sat-rs library](https://egit.irs.uni-stuttgart.de/rust/sat-rs)
 can be used on an embedded target.
 It also shows how a relatively simple OBSW could be built when no standard runtime is available.
-It uses [RTIC](https://rtic.rs/2/book/en/) as the concurrency framework and the
+It uses the [embassy](https://embassy.dev/) executor as the concurrency framework and the
 [defmt](https://defmt.ferrous-systems.com/) framework for logging.
+
+This is the embassy variant of the
+[`stm32h7-nucleo-rtic`](../stm32h7-nucleo-rtic) example. Both provide the same functionality.
 
 The STM32H753ZIT device was picked because it is one of the more powerful Cortex-M based STM32
 devices. It has more RAM available and allows commanding via Ethernet. The example is written for

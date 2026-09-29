@@ -371,7 +371,7 @@ mod app {
             TM_QUEUE_DEPTH,
         >,
     ) -> Result<(), CcsdsPacketCreationError> {
-        let sp_header = SpHeader::new_for_unseg_tc(stm32h7::PUS_APID, current_seq_count, 0);
+        let sp_header = SpHeader::new_for_unseg_tm(stm32h7::PUS_APID, current_seq_count, 0);
         let tm_header = TmHeader {
             tc_packet_id: Some(tc_packet_id),
             uptime_millis: embassy_time::Instant::now().as_millis(),

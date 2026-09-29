@@ -281,7 +281,7 @@ async fn send_tm(
     response: stm32f3::Response,
     current_seq_count: u14,
 ) -> Result<(), TmSendError> {
-    let sp_header = SpHeader::new_for_unseg_tc(stm32f3::PUS_APID, current_seq_count, 0);
+    let sp_header = SpHeader::new_for_unseg_tm(stm32f3::PUS_APID, current_seq_count, 0);
     let tm_header = TmHeader {
         tc_packet_id: Some(tc_packet_id),
         uptime_millis: embassy_time::Instant::now().as_millis(),
