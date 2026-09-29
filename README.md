@@ -59,6 +59,9 @@ All examples and their helper crates are located inside the
    Simple example using sat-rs components on a bare-metal system with constrained resources.
    This example uses the [RTIC](https://github.com/rtic-rs/rtic) framework on the NUCLEO-H753ZI
    board.
+* [`stm32h7-nucleo-embassy`](https://egit.irs.uni-stuttgart.de/rust/sat-rs/src/branch/main/examples/stm32h7-nucleo-embassy):
+   Same as `stm32h7-nucleo-rtic`, but using the [embassy](https://embassy.dev/) executor instead
+   of RTIC.
 * [`embedded-client`](https://egit.irs.uni-stuttgart.de/rust/sat-rs/src/branch/main/examples/embedded-client) and
    [`embedded-types`](https://egit.irs.uni-stuttgart.de/rust/sat-rs/src/branch/main/examples/embedded-types): Client and shared telecommand and telemetry
    definitions for the embedded examples.
