@@ -3,7 +3,6 @@ name = "satrs-example"
 version = "0.1.1"
 edition = "2024"
 default-run = "satrs-example"
-homepage = "https://egit.irs.uni-stuttgart.de/rust/sat-rs"
 repository = "https://egit.irs.uni-stuttgart.de/rust/sat-rs"
 
 [dependencies]

@@ -8,6 +8,26 @@ pub struct Dipole {
     pub z: i16,
 }
 
+impl Dipole {
+    pub const LEN: usize = 6;
+
+    pub fn to_be_bytes(&self) -> [u8; Self::LEN] {
+        let [x0, x1] = self.x.to_be_bytes();
+        let [y0, y1] = self.y.to_be_bytes();
+        let [z0, z1] = self.z.to_be_bytes();
+        [x0, x1, y0, y1, z0, z1]
+    }
+
+    pub fn from_be_bytes(bytes: &[u8; Self::LEN]) -> Self {
+        let [x0, x1, y0, y1, z0, z1] = *bytes;
+        Self {
+            x: i16::from_be_bytes([x0, x1]),
+            y: i16::from_be_bytes([y0, y1]),
+            z: i16::from_be_bytes([z0, z1]),
+        }
+    }
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HkSet {
     pub valid: bool,
@@ -16,7 +36,7 @@ pub struct HkSet {
 }
 
 pub mod request {
-    use crate::{DeviceMode, HkRequestType, Message};
+    use crate::{DeviceMode, HealthRequest, HkRequestType, Message};
 
     use super::Dipole;
 
@@ -36,6 +56,7 @@ pub mod request {
             dipole: Dipole,
             duration: core::time::Duration,
         },
+        Health(HealthRequest),
     }
 
     impl Message for Request {
@@ -45,6 +66,7 @@ pub mod request {
                 Request::Hk(_) => crate::MessageType::Hk,
                 Request::Mode(_) => crate::MessageType::Mode,
                 Request::ApplyTorque { .. } => crate::MessageType::Action,
+                Request::Health(_) => crate::MessageType::Health,
             }
         }
     }
@@ -56,6 +78,9 @@ pub mod request {
 pub enum Event {
     /// A commanded mode transition completed.
     ModeChanged(DeviceMode),
+    /// Too many requests were not answered correctly. Followed by a recovery event.
+    ReplyFaultThresholdExceeded,
+    Recovery(satrs::fdir::RecoveryEvent),
 }
 
 impl crate::Message for Event {
@@ -66,7 +91,10 @@ impl crate::Message for Event {
 
 impl crate::EventId for Event {
     fn event_id(&self) -> u16 {
-        EventDiscriminants::from(self).into()
+        match self {
+            Event::Recovery(event) => crate::recovery_event_id(*event),
+            _ => EventDiscriminants::from(self).into(),
+        }
     }
 }
 
@@ -90,12 +118,16 @@ pub mod response {
         Mode(ModeResponse),
         /// The command requires the device to be in normal mode.
         NotInNormalMode,
+        /// The device did not answer the command with a valid reply in time.
+        ReplyTimeout,
     }
 
     impl Message for Response {
         fn message_type(&self) -> crate::MessageType {
             match self {
-                Response::Ok | Response::NotInNormalMode => crate::MessageType::Verification,
+                Response::Ok | Response::NotInNormalMode | Response::ReplyTimeout => {
+                    crate::MessageType::Verification
+                }
                 Response::Hk(_) => crate::MessageType::Hk,
                 Response::Mode(_) => crate::MessageType::Mode,
             }
