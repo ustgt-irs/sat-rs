@@ -37,26 +37,12 @@ rustup target add thumbv7em-none-eabihf
 ```
 
 All crates in this directory form a separate workspace, because they are built for a different
-target than the rest of the repository. They share one `.cargo` config file. A default is
-provided as `.cargo/config.toml.template`. The build scripts copy it to `.cargo/config.toml`
-if that file does not exist yet. The copy is not tracked by git, so you can change settings like
-the runner for your setup.
-
-Cargo reads the configuration before the build script runs, so the very first build on a fresh
-checkout does not use it yet and might fail. Simply run the build again, or copy the file
-manually beforehand:
-
-```sh
-cp .cargo/config.toml.template .cargo/config.toml
-```
-
-The configuration file also sets the target so it does not always have to be specified with
-the `--target` argument.
+target than the rest of the repository. They share the `.cargo/config.toml` file, which sets
+the build target, the linker arguments and the `probe-rs` runner.
 
 ## Building
 
-After that, assuming that you have a `.cargo/config.toml` setting the correct build target,
-you can build all applications from this directory with
+You can build all applications from this directory with
 
 ```sh
 cargo build
@@ -132,12 +118,11 @@ Without an IP address, the firmware uses the sender address of the request, whic
 common setup where the client and the simulator run on the same host. Otherwise, pass the IP
 address of the simulator host, for example `sim connect 192.168.1.10`.
 
-The simulator address can also be set at build time inside `.cargo/config.toml`, so the firmware
-connects on its own after startup:
+The simulator address can also be set at build time, so the firmware connects on its own after
+startup:
 
-```toml
-[env]
-SIM_IP_ADDR = "192.168.1.10"
+```sh
+SIM_IP_ADDR=192.168.1.10 cargo build
 ```
 
 The firmware pings the simulator on UDP port 7303 and logs the result. It reconnects after a
