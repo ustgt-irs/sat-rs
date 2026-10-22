@@ -55,7 +55,7 @@ impl MgmInputs {
 struct ModelInputs {
     mgm_0: MgmInputs,
     mgm_1: MgmInputs,
-    pcdu_request_switch_info: EventId<()>,
+    pcdu_request_switch_info: EventId<u16>,
     pcdu_switch_device: EventId<(SwitchId, SwitchStateBinary)>,
     mgt_apply_torque: EventId<(Duration, mgt::Dipole)>,
     mgt_request_hk: EventId<()>,
@@ -255,9 +255,9 @@ impl SimController {
             log::info!("received PCDU request: {pcdu_request:?}");
         }
         match pcdu_request {
-            PcduRequest::RequestSwitchInfo => {
+            PcduRequest::RequestSwitchInfo { id } => {
                 self.simulation
-                    .process_event(&self.inputs.pcdu_request_switch_info, ())
+                    .process_event(&self.inputs.pcdu_request_switch_info, id)
                     .unwrap();
             }
             PcduRequest::SwitchDevice { switch, state } => {

@@ -1,6 +1,6 @@
 use strum::{EnumCount as _, IntoEnumIterator as _};
 
-#[bitbybit::bitfield(u16, debug, default = 0x0)]
+#[bitbybit::bitfield(u16, debug, default = 0x0, defmt_bitfields(feature = "defmt"))]
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct SwitchesBitfield {
     #[bit(2, rw)]
@@ -9,6 +9,14 @@ pub struct SwitchesBitfield {
     mgm1: bool,
     #[bit(0, rw)]
     mgm0: bool,
+}
+
+#[derive(
+    Debug, Copy, Clone, PartialEq, Eq, num_enum::TryFromPrimitive, num_enum::IntoPrimitive,
+)]
+#[repr(u32)]
+pub enum SetId {
+    SwitcherSet = 0,
 }
 
 #[derive(
@@ -25,6 +33,7 @@ pub struct SwitchesBitfield {
     num_enum::IntoPrimitive,
     num_enum::TryFromPrimitive,
 )]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(u16)]
 pub enum SwitchId {
     Mgm0 = 0,
@@ -50,6 +59,7 @@ impl From<SwitchStateBinary> for SwitchState {
 }
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum SwitchStateBinary {
     Off = 0,
     On = 1,
@@ -77,7 +87,22 @@ impl crate::EventId for Event {
 
 pub type SwitchMapBinary = heapless::LinearMap<SwitchId, SwitchStateBinary, { SwitchId::COUNT }>;
 
+#[derive(Debug)]
 pub struct SwitchMapBinaryWrapper(pub SwitchMapBinary);
+
+#[cfg(feature = "defmt")]
+impl defmt::Format for SwitchMapBinaryWrapper {
+    fn format(&self, fmt: defmt::Formatter) {
+        defmt::write!(fmt, "{{");
+        for (i, (id, state)) in self.0.iter().enumerate() {
+            if i > 0 {
+                defmt::write!(fmt, ", ");
+            }
+            defmt::write!(fmt, "{}: {}", id, state);
+        }
+        defmt::write!(fmt, "}}");
+    }
+}
 
 impl Default for SwitchMapBinaryWrapper {
     fn default() -> Self {
@@ -88,6 +113,101 @@ impl Default for SwitchMapBinaryWrapper {
                 .expect("switch map capacity exceeded");
         }
         Self(switch_map)
+    }
+}
+
+pub type SwitchMap = heapless::LinearMap<SwitchId, SwitchState, { SwitchId::COUNT }>;
+
+pub struct SwitchMapWrapper(pub SwitchMap);
+
+impl Default for SwitchMapWrapper {
+    fn default() -> Self {
+        Self::new_with_all_switches(SwitchState::Unknown)
+    }
+}
+
+impl SwitchMapWrapper {
+    pub fn new_with_init_switches_off() -> Self {
+        Self::new_with_all_switches(SwitchState::Off)
+    }
+
+    fn new_with_all_switches(state: SwitchState) -> Self {
+        let mut switch_map = SwitchMap::default();
+        for entry in SwitchId::iter() {
+            switch_map
+                .insert(entry, state)
+                .expect("switch map capacity exceeded");
+        }
+        Self(switch_map)
+    }
+
+    pub fn from_binary_switch_map_ref(switch_map: &SwitchMapBinary) -> Self {
+        Self(
+            switch_map
+                .iter()
+                .map(|(key, value)| (*key, SwitchState::from(*value)))
+                .collect(),
+        )
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SwitchSet {
+    pub valid: bool,
+    pub switch_map: SwitchMap,
+}
+
+impl SwitchSet {
+    pub fn new(switch_map: SwitchMap) -> Self {
+        Self {
+            valid: true,
+            switch_map,
+        }
+    }
+
+    /// Invalid until the PCDU reported the switch states for the first time.
+    pub fn new_with_init_switches_unknown() -> Self {
+        Self {
+            valid: false,
+            switch_map: SwitchMapWrapper::default().0,
+        }
+    }
+
+    /// Builds the set from a PCDU report, together with the bitfield for TM. Returns [None] if a
+    /// switch is missing, so an incomplete report is never used.
+    pub fn from_binary_switch_map(
+        switch_map: &SwitchMapBinary,
+    ) -> Option<(Self, SwitchesBitfield)> {
+        let switch_set = Self::new(SwitchMapWrapper::from_binary_switch_map_ref(switch_map).0);
+        let switches = switch_set.as_bitfield()?;
+        Some((switch_set, switches))
+    }
+
+    /// Returns [None] if a switch is missing in the map.
+    pub fn as_bitfield(&self) -> Option<SwitchesBitfield> {
+        let is_on = |id| {
+            self.switch_map
+                .get(&id)
+                .map(|state| *state == SwitchState::On)
+        };
+        Some(
+            SwitchesBitfield::builder()
+                .with_magnetorquer(is_on(SwitchId::Mgt)?)
+                .with_mgm1(is_on(SwitchId::Mgm1)?)
+                .with_mgm0(is_on(SwitchId::Mgm0)?)
+                .build(),
+        )
+    }
+
+    /// Returns false if the switch is not in the map.
+    pub fn set_switch_state(&mut self, switch_id: SwitchId, state: SwitchState) -> bool {
+        match self.switch_map.get_mut(&switch_id) {
+            Some(entry) => {
+                *entry = state;
+                true
+            }
+            None => false,
+        }
     }
 }
 
@@ -114,13 +234,13 @@ impl SwitchRequest {
 }
 
 pub mod request {
-    use crate::{DeviceMode, Message};
+    use crate::Message;
 
     use super::*;
 
     #[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum Request {
-        Mode(DeviceMode),
         Ping,
         GetSwitches,
         EnableSwitches(SwitchesBitfield),
@@ -130,7 +250,6 @@ pub mod request {
     impl Request {
         pub fn message_type(&self) -> crate::MessageType {
             match self {
-                Request::Mode(_mode) => crate::MessageType::Mode,
                 Request::Ping => crate::MessageType::Verification,
                 Request::GetSwitches => crate::MessageType::Action,
                 Request::EnableSwitches(_switches) | Request::DisableSwitches(_switches) => {
@@ -164,5 +283,33 @@ pub mod response {
                 Response::Switches(_switches) => crate::MessageType::Action,
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_switch_set_from_binary_switch_map() {
+        let mut switch_map = SwitchMapBinaryWrapper::default().0;
+        *switch_map.get_mut(&SwitchId::Mgm0).unwrap() = SwitchStateBinary::On;
+        let (switch_set, switches) =
+            SwitchSet::from_binary_switch_map(&switch_map).expect("switch map is complete");
+        assert!(switch_set.valid);
+        assert_eq!(
+            switch_set.switch_map.get(&SwitchId::Mgm0),
+            Some(&SwitchState::On)
+        );
+        assert!(switches.mgm0());
+        assert!(!switches.mgm1());
+        assert!(!switches.magnetorquer());
+    }
+
+    #[test]
+    fn test_switch_set_from_incomplete_binary_switch_map() {
+        let mut switch_map = SwitchMapBinaryWrapper::default().0;
+        switch_map.remove(&SwitchId::Mgt);
+        assert!(SwitchSet::from_binary_switch_map(&switch_map).is_none());
     }
 }

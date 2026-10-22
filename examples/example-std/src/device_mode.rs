@@ -247,7 +247,8 @@ mod tests {
         pcdu::{SwitchRequest, SwitchState, SwitchStateBinary},
     };
 
-    use crate::eps::pcdu::{SharedSwitchSet, SwitchMap, SwitchSet};
+    use crate::eps::pcdu::SharedSwitchSet;
+    use types::pcdu::{SwitchMap, SwitchSet};
 
     use super::*;
 
@@ -263,7 +264,7 @@ mod tests {
         fn new() -> Self {
             let (switch_tx, switch_rx) = mpsc::sync_channel(10);
             let mut switch_map = SwitchMap::new();
-            switch_map.insert(SwitchId::Mgm0, SwitchState::Off);
+            switch_map.insert(SwitchId::Mgm0, SwitchState::Off).unwrap();
             let shared_switch_set: SharedSwitchSet =
                 Arc::new(Mutex::new(SwitchSet::new(switch_map)));
             Self {

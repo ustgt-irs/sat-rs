@@ -611,8 +611,7 @@ dependencies = [
 [[package]]
 name = "embedded-alloc"
 version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2db634e07f552215f7a3572dc0a4d29760c637fcea5a8c18d2cc291f782c216c"
+source = "git+https://github.com/rust-embedded/embedded-alloc?rev=3e687e5855cdc98e8c984574a75d44732433b9db#3e687e5855cdc98e8c984574a75d44732433b9db"
 dependencies = [
  "const-default",
  "critical-section",
@@ -949,6 +948,7 @@ checksum = "f8ca58f447f06ed17d5fc4043ce1b10dd205e060fb3ce5b979b8ed8e59ff3f79"
 name = "minisim-types"
 version = "0.1.0"
 dependencies = [
+ "defmt 1.1.0",
  "num_enum",
  "serde",
  "tai-time",
@@ -1051,6 +1051,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6764c3b5dd454e283a30e6dfe78e9b31096d9e32036b5d1eaac7a6119ccb9a24"
 dependencies = [
  "cobs 0.3.0",
+ "defmt 1.1.0",
  "embedded-io 0.4.0",
  "embedded-io 0.6.1",
  "heapless 0.7.17",
@@ -1327,6 +1328,7 @@ dependencies = [
  "embassy-stm32",
  "embassy-sync",
  "embassy-time",
+ "heapless 0.9.3",
  "minisim-types",
  "postcard",
  "serde",
@@ -1646,6 +1648,7 @@ version = "0.1.0"
 dependencies = [
  "arbitrary-int",
  "bitbybit",
+ "defmt 1.1.0",
  "heapless 0.9.3",
  "num_enum",
  "postcard",

@@ -7,21 +7,24 @@ members = [
 ]
 
 [workspace.dependencies]
-types = { path = "../types" }
-minisim-types = { path = "../minisim-types" }
+types = { path = "../types", features = ["defmt"] }
+minisim-types = { path = "../minisim-types", features = ["defmt"] }
 shared-embedded = { path = "shared-embedded" }
 
 cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
 cortex-m-rt = "0.7"
 arbitrary-int = "2"
-defmt = "1"
+# ip_in_core adds formatting for the core::net types.
+defmt = { version = "1", features = ["ip_in_core"] }
 defmt-rtt = "1"
 defmt-test = "0.5"
 panic-probe = { version = "1", features = ["print-defmt"] }
-embedded-alloc = "0.7"
+# Contains the TLSF usage API fixes, which are not released yet. Switch back to crates.io
+# once v0.7.1 is out.
+embedded-alloc = { git = "https://github.com/rust-embedded/embedded-alloc", rev = "3e687e5855cdc98e8c984574a75d44732433b9db" }
 static_cell = "2"
 spacepackets = { version = "0.18", default-features = false, features = ["defmt"] }
-postcard = "1"
+postcard = { version = "1", features = ["use-defmt"] }
 serde = { version = "1", default-features = false }
 rtic = { version = "2", features = ["thumbv7-backend"] }
 

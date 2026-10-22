@@ -57,3 +57,22 @@ clippy:
   script:
     - rustup component add clippy
     - cargo clippy -- -D warnings
+
+# The embedded examples are a separate workspace.
+embedded:
+  cache:
+    key: ${CI_JOB_NAME_SLUG}
+    paths:
+      - .cargo/registry/index/
+      - .cargo/registry/cache/
+      - .cargo/git/db/
+      - examples/embedded/target/
+  script:
+    - rustup component add clippy rustfmt
+    - rustup target add thumbv7em-none-eabihf
+    # Linker of the embedded examples. Installed to a folder in the PATH.
+    - cargo install flip-link --locked --root /usr/local/cargo
+    - cd examples/embedded
+    - cargo fmt --all -- --check
+    - cargo clippy -- -D warnings
+    - cargo build --release

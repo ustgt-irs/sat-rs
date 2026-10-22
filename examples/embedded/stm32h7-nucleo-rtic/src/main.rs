@@ -20,12 +20,23 @@ mod app {
         net_runner: embassy_net::Runner<'static, shared_embedded::net::Device>,
         net_stack: embassy_net::Stack<'static>,
         sim_net_stack: embassy_net::Stack<'static>,
+        sim_request_rx: shared_embedded::sim_client::SimRequestReceiver,
+        sim_reply_senders: shared_embedded::sim_client::SimReplySenders,
         leds: shared_embedded::leds::Leds,
         green_led: gpio::Output<'static>,
         tc_rx: shared_embedded::tmtc::TcReceiver,
         tc_tx: shared_embedded::tmtc::TcSender,
         tm_rx: shared_embedded::tmtc::TmReceiver,
+        tm_tx: shared_embedded::tmtc::TmSender,
+        tm_funnel_rx: shared_embedded::tmtc::TmFunnelReceiver,
         telemetry: shared_embedded::tmtc::Telemetry,
+        tc_handler_event_tx: shared_embedded::event_manager::EventSender,
+        event_rx: shared_embedded::event_manager::EventReceiver,
+        event_manager_tm_tx: shared_embedded::tmtc::TmFunnelSender,
+        tc_senders: shared_embedded::tmtc::TcSenders,
+        pcdu_handler: shared_embedded::pcdu::PcduHandler,
+        pcdu_sim_request_tx: shared_embedded::sim_client::SimRequestSender,
+        pcdu_sim_reply_rx: shared_embedded::sim_client::PcduSimReplyReceiver,
     }
 
     #[shared]
@@ -107,13 +118,51 @@ mod app {
         static TM_CHANNEL: ConstStaticCell<shared_embedded::tmtc::TmChannel> =
             ConstStaticCell::new(shared_embedded::tmtc::TmChannel::new());
         let tm_channel = TM_CHANNEL.take();
+        static TM_FUNNEL_CHANNEL: ConstStaticCell<shared_embedded::tmtc::TmFunnelChannel> =
+            ConstStaticCell::new(shared_embedded::tmtc::TmFunnelChannel::new());
+        let tm_funnel_channel = TM_FUNNEL_CHANNEL.take();
+        static EVENT_CHANNEL: ConstStaticCell<shared_embedded::event_manager::EventChannel> =
+            ConstStaticCell::new(shared_embedded::event_manager::EventChannel::new());
+        let event_channel = EVENT_CHANNEL.take();
+        static SIM_REQUEST_CHANNEL: ConstStaticCell<
+            shared_embedded::sim_client::SimRequestChannel,
+        > = ConstStaticCell::new(shared_embedded::sim_client::SimRequestChannel::new());
+        let sim_request_channel = SIM_REQUEST_CHANNEL.take();
+        static PCDU_SIM_REPLY_CHANNEL: ConstStaticCell<
+            shared_embedded::sim_client::PcduSimReplyChannel,
+        > = ConstStaticCell::new(shared_embedded::sim_client::PcduSimReplyChannel::new());
+        let pcdu_sim_reply_channel = PCDU_SIM_REPLY_CHANNEL.take();
+        static PCDU_TC_CHANNEL: ConstStaticCell<shared_embedded::pcdu::PcduTcChannel> =
+            ConstStaticCell::new(shared_embedded::pcdu::PcduTcChannel::new());
+        let pcdu_tc_channel = PCDU_TC_CHANNEL.take();
+        static PCDU_SWITCH_REQUEST_CHANNEL: ConstStaticCell<
+            shared_embedded::pcdu::PcduSwitchRequestChannel,
+        > = ConstStaticCell::new(shared_embedded::pcdu::PcduSwitchRequestChannel::new());
+        let pcdu_switch_request_channel = PCDU_SWITCH_REQUEST_CHANNEL.take();
+        static SHARED_SWITCH_SET: StaticCell<shared_embedded::pcdu::SharedSwitchSet> =
+            StaticCell::new();
+        let shared_switch_set =
+            SHARED_SWITCH_SET.init(shared_embedded::pcdu::new_shared_switch_set());
+        // No component sends switch requests yet, so the sender is not used.
+        let pcdu_handler = shared_embedded::pcdu::PcduHandler::new(
+            pcdu_tc_channel.receiver(),
+            tm_funnel_channel.sender(),
+            pcdu_switch_request_channel.receiver(),
+            shared_embedded::pcdu::PcduCommunication::Dummy(Default::default()),
+            shared_switch_set,
+            event_channel.sender(),
+        );
 
         net_lib_task::spawn().expect("spawning net library task failed");
         udp_task::spawn().expect("spawning UDP task failed");
         sim_client_task::spawn().expect("spawning sim client task failed");
         heartbeat::spawn().expect("spawning heartbeat task failed");
+        heap_monitor::spawn().expect("spawning heap monitor task failed");
         led_task::spawn().expect("spawning LED task failed");
         tc_handler::spawn().expect("spawning TC handler task failed");
+        tm_funnel::spawn().expect("spawning TM funnel task failed");
+        event_manager::spawn().expect("spawning event manager task failed");
+        pcdu_task::spawn().expect("spawning PCDU task failed");
 
         (
             Shared {},
@@ -123,10 +172,25 @@ mod app {
                 net_runner: runner,
                 net_stack: stack,
                 sim_net_stack: stack,
+                sim_request_rx: sim_request_channel.receiver(),
+                sim_reply_senders: shared_embedded::sim_client::SimReplySenders {
+                    pcdu: pcdu_sim_reply_channel.sender(),
+                },
                 tc_tx: tc_channel.sender(),
                 tc_rx: tc_channel.receiver(),
-                telemetry: shared_embedded::tmtc::Telemetry::new(tm_channel.sender()),
+                telemetry: shared_embedded::tmtc::Telemetry::new(tm_funnel_channel.sender()),
                 tm_rx: tm_channel.receiver(),
+                tm_tx: tm_channel.sender(),
+                tm_funnel_rx: tm_funnel_channel.receiver(),
+                tc_handler_event_tx: event_channel.sender(),
+                event_rx: event_channel.receiver(),
+                event_manager_tm_tx: tm_funnel_channel.sender(),
+                tc_senders: shared_embedded::tmtc::TcSenders {
+                    pcdu: pcdu_tc_channel.sender(),
+                },
+                pcdu_handler,
+                pcdu_sim_request_tx: sim_request_channel.sender(),
+                pcdu_sim_reply_rx: pcdu_sim_reply_channel.receiver(),
             },
         )
     }
@@ -134,6 +198,15 @@ mod app {
     #[task(local = [green_led])]
     async fn heartbeat(cx: heartbeat::Context) {
         shared_embedded::leds::heartbeat(cx.local.green_led).await;
+    }
+
+    #[task]
+    async fn heap_monitor(_cx: heap_monitor::Context) {
+        shared_embedded::heap::heap_monitor_task(
+            stm32h7_nucleo_rtic::heap_used,
+            stm32h7_nucleo_rtic::HEAP_SIZE,
+        )
+        .await;
     }
 
     #[task(local = [leds])]
@@ -151,13 +224,51 @@ mod app {
         shared_embedded::net::udp_task(*cx.local.net_stack, *cx.local.tc_tx, *cx.local.tm_rx).await;
     }
 
-    #[task(local = [sim_net_stack])]
+    #[task(local = [sim_net_stack, sim_request_rx, sim_reply_senders])]
     async fn sim_client_task(cx: sim_client_task::Context) {
-        shared_embedded::sim_client::sim_client_task(*cx.local.sim_net_stack).await;
+        let ctx = cx.local;
+        shared_embedded::sim_client::sim_client_task(
+            *ctx.sim_net_stack,
+            *ctx.sim_request_rx,
+            *ctx.sim_reply_senders,
+        )
+        .await;
     }
 
-    #[task(local = [tc_rx, telemetry])]
+    #[task(local = [tc_rx, telemetry, tc_handler_event_tx, tc_senders])]
     async fn tc_handler(cx: tc_handler::Context) {
-        shared_embedded::tmtc::tc_handler(*cx.local.tc_rx, cx.local.telemetry).await;
+        let ctx = cx.local;
+        shared_embedded::tmtc::tc_handler(
+            *ctx.tc_rx,
+            ctx.telemetry,
+            *ctx.tc_handler_event_tx,
+            *ctx.tc_senders,
+        )
+        .await;
+    }
+
+    #[task(local = [tm_funnel_rx, tm_tx])]
+    async fn tm_funnel(cx: tm_funnel::Context) {
+        shared_embedded::tmtc::tm_funnel_task(*cx.local.tm_funnel_rx, *cx.local.tm_tx).await;
+    }
+
+    #[task(local = [event_rx, event_manager_tm_tx])]
+    async fn event_manager(cx: event_manager::Context) {
+        shared_embedded::event_manager::event_manager_task(
+            *cx.local.event_rx,
+            *cx.local.event_manager_tm_tx,
+        )
+        .await;
+    }
+
+    #[task(local = [pcdu_handler, pcdu_sim_request_tx, pcdu_sim_reply_rx])]
+    async fn pcdu_task(cx: pcdu_task::Context) {
+        let ctx = cx.local;
+        shared_embedded::pcdu::pcdu_task(
+            ctx.pcdu_handler,
+            *ctx.pcdu_sim_request_tx,
+            *ctx.pcdu_sim_reply_rx,
+        )
+        .await;
     }
 }

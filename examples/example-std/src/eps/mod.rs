@@ -1,10 +1,8 @@
 use std::{cell::RefCell, collections::VecDeque, sync::mpsc, time::Duration};
-use types::pcdu::{SwitchId, SwitchRequest, SwitchState, SwitchStateBinary};
+use types::pcdu::{SwitchId, SwitchMapWrapper, SwitchRequest, SwitchState, SwitchStateBinary};
 
 use satrs::{queue::GenericSendError, request::MessageMetadata};
 use thiserror::Error;
-
-use crate::eps::pcdu::SwitchMapWrapper;
 
 use self::pcdu::SharedSwitchSet;
 
@@ -139,6 +137,10 @@ impl Default for TestSwitchHelper {
 impl TestSwitchHelper {
     // Helper function which can be used to force a switch to another state for test purposes.
     pub fn set_switch_state(&mut self, switch: SwitchId, state: SwitchState) {
-        self.switch_map.get_mut().0.insert(switch, state);
+        self.switch_map
+            .get_mut()
+            .0
+            .insert(switch, state)
+            .expect("switch map capacity exceeded");
     }
 }

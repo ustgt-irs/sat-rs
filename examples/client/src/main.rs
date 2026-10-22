@@ -65,6 +65,7 @@ enum Commands {
     Mgt(MgtArgs),
     AcsSubsystem(SubsystemArgs),
     EventManager(EventManagerArgs),
+    Pcdu(PcduArgs),
     /// Blinking LEDs of the embedded examples.
     Led(LedArgs),
     /// Connection between the OBSW and the minisim.
@@ -243,6 +244,36 @@ struct MgtArgs {
     health: Option<HealthStateSelect>,
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, clap::Parser)]
+struct PcduArgs {
+    /// Round trip to the PCDU device, not only to its handler.
+    #[arg(short, long)]
+    ping: bool,
+    #[arg(short, long)]
+    get_switches: bool,
+    /// Can be passed multiple times.
+    #[arg(short, long, value_enum)]
+    enable: Vec<SwitchSelect>,
+    /// Can be passed multiple times.
+    #[arg(short, long, value_enum)]
+    disable: Vec<SwitchSelect>,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy, clap::ValueEnum)]
+enum SwitchSelect {
+    Mgm0,
+    Mgm1,
+    Mgt,
+}
+
+fn switches_bitfield(switches: &[SwitchSelect]) -> types::pcdu::SwitchesBitfield {
+    types::pcdu::SwitchesBitfield::builder()
+        .with_magnetorquer(switches.contains(&SwitchSelect::Mgt))
+        .with_mgm1(switches.contains(&SwitchSelect::Mgm1))
+        .with_mgm0(switches.contains(&SwitchSelect::Mgm0))
+        .build()
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy, clap::Parser)]
 struct LedArgs {
     #[arg(short, long)]
@@ -353,6 +384,47 @@ fn send_led_request(client: &UdpSocket, addr: SocketAddr, request: types::led::r
     let sent_tc_id = CcsdsPacketIdAndPsc::new_from_ccsds_packet(&packet.sp_header);
     log::info!(
         "sending LED request {:?} with TC ID {:#010x}",
+        request,
+        sent_tc_id.raw()
+    );
+    client.send_to(&packet.to_vec(), addr).unwrap();
+}
+
+fn handle_pcdu_command(client: &UdpSocket, addr: SocketAddr, args: PcduArgs) {
+    use types::pcdu::request::Request;
+
+    if args.ping {
+        send_pcdu_request(client, addr, Request::Ping);
+    }
+    if !args.enable.is_empty() {
+        send_pcdu_request(
+            client,
+            addr,
+            Request::EnableSwitches(switches_bitfield(&args.enable)),
+        );
+    }
+    if !args.disable.is_empty() {
+        send_pcdu_request(
+            client,
+            addr,
+            Request::DisableSwitches(switches_bitfield(&args.disable)),
+        );
+    }
+    // Last, so the reply already contains the switch changes, if they were fast enough.
+    if args.get_switches {
+        send_pcdu_request(client, addr, Request::GetSwitches);
+    }
+}
+
+fn send_pcdu_request(client: &UdpSocket, addr: SocketAddr, request: types::pcdu::request::Request) {
+    let packet = types::ccsds::CcsdsTcPacketOwned::new_with_request(
+        SpacePacketHeader::new_from_apid(u11::new(Apid::Eps as u16)),
+        TcHeader::new(types::ComponentId::EpsPcdu, request.message_type()),
+        request,
+    );
+    let sent_tc_id = CcsdsPacketIdAndPsc::new_from_ccsds_packet(&packet.sp_header);
+    log::info!(
+        "sending PCDU request {:?} with TC ID {:#010x}",
         request,
         sent_tc_id.raw()
     );
@@ -711,6 +783,7 @@ fn main() -> anyhow::Result<()> {
                 }
             }
             Commands::EventManager(args) => handle_event_manager_command(&client, addr, args),
+            Commands::Pcdu(args) => handle_pcdu_command(&client, addr, args),
             Commands::Led(args) => handle_led_command(&client, addr, args),
             Commands::Sim(args) => handle_sim_command(&client, addr, args),
         }

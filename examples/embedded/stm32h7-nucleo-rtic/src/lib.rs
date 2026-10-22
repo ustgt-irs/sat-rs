@@ -6,9 +6,9 @@ use embassy_stm32 as _;
 use panic_probe as _;
 
 use core::mem::MaybeUninit;
-use embedded_alloc::LlffHeap as Heap;
+use embedded_alloc::TlsfHeap as Heap;
 
-const HEAP_SIZE: usize = 131_072;
+pub const HEAP_SIZE: usize = 65_536;
 
 // Part of the library, because all binaries depend on crates which require an allocator.
 #[global_allocator]
@@ -20,6 +20,10 @@ static HEAP: Heap = Heap::empty();
 pub unsafe fn init_heap() {
     static mut HEAP_MEM: [MaybeUninit<u8>; HEAP_SIZE] = [MaybeUninit::uninit(); HEAP_SIZE];
     unsafe { HEAP.init(&raw mut HEAP_MEM as usize, HEAP_SIZE) }
+}
+
+pub fn heap_used() -> usize {
+    HEAP.used()
 }
 
 // same panicking *behavior* as `panic-probe` but doesn't print a panic message

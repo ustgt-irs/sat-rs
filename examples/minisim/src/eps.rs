@@ -31,18 +31,21 @@ impl PcduModel {
         }
     }
 
-    pub async fn request_switch_info(&mut self, _: (), cx: &Context<Self>) {
+    pub async fn request_switch_info(&mut self, id: u16, cx: &Context<Self>) {
         cx.schedule_event(
             Duration::from_millis(SWITCH_INFO_DELAY_MS),
             schedulable!(Self::send_switch_info),
-            (),
+            id,
         )
         .expect("requesting switch info failed");
     }
 
     #[nexosim(schedulable)]
-    async fn send_switch_info(&mut self) {
-        let reply = SimReply::from(PcduReply::SwitchInfo(self.switcher_map.clone()));
+    async fn send_switch_info(&mut self, id: u16) {
+        let reply = SimReply::from(PcduReply::SwitchInfo {
+            id,
+            switch_map: self.switcher_map.clone(),
+        });
         self.reply.send(reply).await;
     }
 
@@ -103,18 +106,18 @@ pub(crate) mod tests {
         SwitchMapBinaryWrapper::default().0
     }
 
-    fn unwrap_switch_map(sim_reply: SimReply) -> SwitchMapBinary {
-        let SimReply::Pcdu(PcduReply::SwitchInfo(switch_map)) = sim_reply else {
+    fn unwrap_switch_info(sim_reply: SimReply) -> (u16, SwitchMapBinary) {
+        let SimReply::Pcdu(PcduReply::SwitchInfo { id, switch_map }) = sim_reply else {
             panic!("unexpected reply {sim_reply:?}");
         };
-        switch_map
+        (id, switch_map)
     }
 
     fn check_switch_state(sim_testbench: &mut SimTestbench, expected_switch_map: &SwitchMapBinary) {
         let sim_reply = sim_testbench
-            .request_reply(PcduRequest::RequestSwitchInfo)
+            .request_reply(PcduRequest::RequestSwitchInfo { id: 0 })
             .expect("no PCDU reply received");
-        assert_eq!(unwrap_switch_map(sim_reply), *expected_switch_map);
+        assert_eq!(unwrap_switch_info(sim_reply).1, *expected_switch_map);
     }
 
     fn test_pcdu_switching_single_switch(switch: SwitchId, target: SwitchStateBinary) {
@@ -128,7 +131,8 @@ pub(crate) mod tests {
     #[test]
     fn test_pcdu_switcher_request() {
         let mut sim_testbench = SimTestbench::new();
-        let request = SimRequestWithTime::new_with_epoch_time(PcduRequest::RequestSwitchInfo);
+        let request =
+            SimRequestWithTime::new_with_epoch_time(PcduRequest::RequestSwitchInfo { id: 42 });
         sim_testbench
             .send_request(request)
             .expect("sending PCDU request failed");
@@ -141,7 +145,10 @@ pub(crate) mod tests {
         let sim_reply = sim_testbench
             .try_receive_next_reply()
             .expect("no PCDU reply received");
-        assert_eq!(unwrap_switch_map(sim_reply), get_all_off_switch_map());
+        assert_eq!(
+            unwrap_switch_info(sim_reply),
+            (42, get_all_off_switch_map())
+        );
     }
 
     #[test]

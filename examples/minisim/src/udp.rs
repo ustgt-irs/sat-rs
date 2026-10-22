@@ -315,7 +315,8 @@ mod tests {
             UdpTestbench::new(true, Some(SERVER_WAIT_TIME_MS), 10)
                 .expect("could not create testbench");
         let server_thread = std::thread::spawn(move || udp_server.run());
-        let sim_request = SimRequestWithTime::new_with_epoch_time(PcduRequest::RequestSwitchInfo);
+        let sim_request =
+            SimRequestWithTime::new_with_epoch_time(PcduRequest::RequestSwitchInfo { id: 0 });
         udp_testbench
             .send_request(&sim_request)
             .expect("sending request failed");
@@ -342,7 +343,10 @@ mod tests {
             ))
             .expect("sending request failed");
 
-        let sim_reply = SimReply::from(PcduReply::SwitchInfo(get_all_off_switch_map()));
+        let sim_reply = SimReply::from(PcduReply::SwitchInfo {
+            id: 0,
+            switch_map: get_all_off_switch_map(),
+        });
         udp_testbench.send_reply(&sim_reply);
 
         udp_testbench.check_next_sim_reply(&sim_reply);
@@ -369,7 +373,10 @@ mod tests {
             .expect("sending request failed");
 
         // Send a reply to the server, ensure it gets forwarded to the client.
-        let sim_reply = SimReply::from(PcduReply::SwitchInfo(get_all_off_switch_map()));
+        let sim_reply = SimReply::from(PcduReply::SwitchInfo {
+            id: 0,
+            switch_map: get_all_off_switch_map(),
+        });
         udp_testbench.send_reply(&sim_reply);
         std::thread::sleep(Duration::from_millis(SERVER_WAIT_TIME_MS));
 
@@ -388,7 +395,10 @@ mod tests {
         let server_thread = std::thread::spawn(move || udp_server.run());
 
         // Send a reply to the server. The client is not connected, so it won't get forwarded.
-        let sim_reply = SimReply::from(PcduReply::SwitchInfo(get_all_off_switch_map()));
+        let sim_reply = SimReply::from(PcduReply::SwitchInfo {
+            id: 0,
+            switch_map: get_all_off_switch_map(),
+        });
         udp_testbench.send_reply(&sim_reply);
         std::thread::sleep(Duration::from_millis(10));
 
