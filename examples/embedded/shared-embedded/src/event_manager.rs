@@ -20,7 +20,14 @@ pub type EventSender = Sender<'static, CriticalSectionRawMutex, EventMessage, EV
 pub type EventReceiver =
     Receiver<'static, CriticalSectionRawMutex, EventMessage, EVENT_QUEUE_DEPTH>;
 
-pub async fn event_manager_task(event_rx: EventReceiver, tm_tx: TmFunnelSender) {
+#[derive(Clone, Copy)]
+pub struct EventManagerEndpoints {
+    pub event_rx: EventReceiver,
+    pub tm_tx: TmFunnelSender,
+}
+
+pub async fn event_manager_task(endpoints: EventManagerEndpoints) {
+    let EventManagerEndpoints { event_rx, tm_tx } = endpoints;
     loop {
         match event_rx.receive().await {
             // The client expects controller events wrapped in the generic event type.

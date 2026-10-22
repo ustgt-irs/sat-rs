@@ -3,6 +3,7 @@
 #![no_std]
 extern crate alloc;
 
+pub mod channels;
 pub mod config;
 pub mod event_manager;
 pub mod heap;

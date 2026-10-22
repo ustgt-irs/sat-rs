@@ -1,6 +1,6 @@
 use alloc::vec::Vec;
 use arbitrary_int::{u11, u14};
-use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, NoopRawMutex};
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::{Channel, Receiver, Sender};
 use heapless::LinearMap;
 use spacepackets::{CcsdsPacketIdAndPsc, CcsdsPacketReader, SpHeader};
@@ -14,15 +14,15 @@ use crate::net::LAST_SENDER;
 use crate::pcdu::PcduTcSender;
 use crate::sim_client;
 
-pub type TcChannel = Channel<NoopRawMutex, Vec<u8>, TC_QUEUE_DEPTH>;
-pub type TmChannel = Channel<NoopRawMutex, Vec<u8>, TM_QUEUE_DEPTH>;
+// Critical section mutexes, because RTIC tasks with different priorities can preempt each other.
+pub type TcChannel = Channel<CriticalSectionRawMutex, Vec<u8>, TC_QUEUE_DEPTH>;
+pub type TmChannel = Channel<CriticalSectionRawMutex, Vec<u8>, TM_QUEUE_DEPTH>;
 
-pub type TcSender = Sender<'static, NoopRawMutex, Vec<u8>, TC_QUEUE_DEPTH>;
-pub type TcReceiver = Receiver<'static, NoopRawMutex, Vec<u8>, TC_QUEUE_DEPTH>;
-pub type TmSender = Sender<'static, NoopRawMutex, Vec<u8>, TM_QUEUE_DEPTH>;
-pub type TmReceiver = Receiver<'static, NoopRawMutex, Vec<u8>, TM_QUEUE_DEPTH>;
+pub type TcSender = Sender<'static, CriticalSectionRawMutex, Vec<u8>, TC_QUEUE_DEPTH>;
+pub type TcReceiver = Receiver<'static, CriticalSectionRawMutex, Vec<u8>, TC_QUEUE_DEPTH>;
+pub type TmSender = Sender<'static, CriticalSectionRawMutex, Vec<u8>, TM_QUEUE_DEPTH>;
+pub type TmReceiver = Receiver<'static, CriticalSectionRawMutex, Vec<u8>, TM_QUEUE_DEPTH>;
 
-// Critical section mutex, because the producers can run in RTIC tasks with different priorities.
 pub type TmFunnelChannel =
     Channel<CriticalSectionRawMutex, CcsdsTmPacketOwned, TM_FUNNEL_QUEUE_DEPTH>;
 pub type TmFunnelSender =
@@ -39,12 +39,22 @@ pub struct TcSenders {
 /// Number of APIDs which can send TM.
 const MAX_TM_APIDS: usize = 4;
 
-pub async fn tc_handler(
-    tc_rx: TcReceiver,
-    telemetry: &mut Telemetry,
-    event_tx: EventSender,
-    tc_senders: TcSenders,
-) {
+#[derive(Clone, Copy)]
+pub struct TcHandlerEndpoints {
+    pub tc_rx: TcReceiver,
+    pub tm_tx: TmFunnelSender,
+    pub event_tx: EventSender,
+    pub tc_senders: TcSenders,
+}
+
+pub async fn tc_handler(endpoints: TcHandlerEndpoints) {
+    let TcHandlerEndpoints {
+        tc_rx,
+        tm_tx,
+        event_tx,
+        tc_senders,
+    } = endpoints;
+    let telemetry = &mut Telemetry::new(tm_tx);
     loop {
         let tc = tc_rx.receive().await;
         let packet = match CcsdsPacketReader::new_with_checksum(&tc) {
@@ -208,7 +218,14 @@ impl SeqCounterMap {
 }
 
 /// All TM passes through here, so each APID gets one gapless sequence count.
-pub async fn tm_funnel_task(funnel_rx: TmFunnelReceiver, tm_tx: TmSender) {
+#[derive(Clone, Copy)]
+pub struct TmFunnelEndpoints {
+    pub funnel_rx: TmFunnelReceiver,
+    pub tm_tx: TmSender,
+}
+
+pub async fn tm_funnel_task(endpoints: TmFunnelEndpoints) {
+    let TmFunnelEndpoints { funnel_rx, tm_tx } = endpoints;
     let mut seq_counts = SeqCounterMap::default();
     loop {
         let mut packet = funnel_rx.receive().await;
