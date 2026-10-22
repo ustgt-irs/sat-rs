@@ -8,7 +8,7 @@ use rtic::app;
 mod app {
     use embassy_net::StackResources;
     use embassy_stm32::{bind_interrupts, eth, gpio, peripherals, rng};
-    use static_cell::{ConstStaticCell, StaticCell};
+    use static_cell::StaticCell;
 
     bind_interrupts!(struct Irqs {
         ETH => eth::InterruptHandler;
@@ -22,10 +22,12 @@ mod app {
         sim_net_stack: embassy_net::Stack<'static>,
         leds: shared_embedded::leds::Leds,
         green_led: gpio::Output<'static>,
-        tc_rx: shared_embedded::tmtc::TcReceiver,
-        tc_tx: shared_embedded::tmtc::TcSender,
-        tm_rx: shared_embedded::tmtc::TmReceiver,
-        telemetry: shared_embedded::tmtc::Telemetry,
+        udp_endpoints: shared_embedded::net::UdpEndpoints,
+        sim_client_endpoints: shared_embedded::sim_client::SimClientEndpoints,
+        tc_handler_endpoints: shared_embedded::tmtc::TcHandlerEndpoints,
+        tm_funnel_endpoints: shared_embedded::tmtc::TmFunnelEndpoints,
+        event_manager_endpoints: shared_embedded::event_manager::EventManagerEndpoints,
+        pcdu_handler: shared_embedded::pcdu::PcduHandler,
     }
 
     #[shared]
@@ -101,19 +103,25 @@ mod app {
         let (stack, runner) =
             embassy_net::new(device, config, RESOURCES.init(StackResources::new()), seed);
 
-        static TC_CHANNEL: ConstStaticCell<shared_embedded::tmtc::TcChannel> =
-            ConstStaticCell::new(shared_embedded::tmtc::TcChannel::new());
-        let tc_channel = TC_CHANNEL.take();
-        static TM_CHANNEL: ConstStaticCell<shared_embedded::tmtc::TmChannel> =
-            ConstStaticCell::new(shared_embedded::tmtc::TmChannel::new());
-        let tm_channel = TM_CHANNEL.take();
+        static CHANNELS: shared_embedded::channels::Channels =
+            shared_embedded::channels::Channels::new();
+        static SHARED_SWITCH_SET: StaticCell<shared_embedded::pcdu::SharedSwitchSet> =
+            StaticCell::new();
+        let shared_switch_set =
+            SHARED_SWITCH_SET.init(shared_embedded::pcdu::new_shared_switch_set());
+        let pcdu_handler =
+            shared_embedded::pcdu::PcduHandler::new(CHANNELS.pcdu(), shared_switch_set);
 
         net_lib_task::spawn().expect("spawning net library task failed");
         udp_task::spawn().expect("spawning UDP task failed");
         sim_client_task::spawn().expect("spawning sim client task failed");
         heartbeat::spawn().expect("spawning heartbeat task failed");
+        heap_monitor::spawn().expect("spawning heap monitor task failed");
         led_task::spawn().expect("spawning LED task failed");
         tc_handler::spawn().expect("spawning TC handler task failed");
+        tm_funnel::spawn().expect("spawning TM funnel task failed");
+        event_manager::spawn().expect("spawning event manager task failed");
+        pcdu_task::spawn().expect("spawning PCDU task failed");
 
         (
             Shared {},
@@ -123,10 +131,12 @@ mod app {
                 net_runner: runner,
                 net_stack: stack,
                 sim_net_stack: stack,
-                tc_tx: tc_channel.sender(),
-                tc_rx: tc_channel.receiver(),
-                telemetry: shared_embedded::tmtc::Telemetry::new(tm_channel.sender()),
-                tm_rx: tm_channel.receiver(),
+                udp_endpoints: CHANNELS.udp(),
+                sim_client_endpoints: CHANNELS.sim_client(),
+                tc_handler_endpoints: CHANNELS.tc_handler(),
+                tm_funnel_endpoints: CHANNELS.tm_funnel(),
+                event_manager_endpoints: CHANNELS.event_manager(),
+                pcdu_handler,
             },
         )
     }
@@ -134,6 +144,15 @@ mod app {
     #[task(local = [green_led])]
     async fn heartbeat(cx: heartbeat::Context) {
         shared_embedded::leds::heartbeat(cx.local.green_led).await;
+    }
+
+    #[task]
+    async fn heap_monitor(_cx: heap_monitor::Context) {
+        shared_embedded::heap::heap_monitor_task(
+            stm32h7_nucleo_rtic::heap_used,
+            stm32h7_nucleo_rtic::HEAP_SIZE,
+        )
+        .await;
     }
 
     #[task(local = [leds])]
@@ -146,18 +165,37 @@ mod app {
         shared_embedded::net::net_stack_task(cx.local.net_runner).await;
     }
 
-    #[task(local = [net_stack, tc_tx, tm_rx])]
+    #[task(local = [net_stack, udp_endpoints])]
     async fn udp_task(cx: udp_task::Context) {
-        shared_embedded::net::udp_task(*cx.local.net_stack, *cx.local.tc_tx, *cx.local.tm_rx).await;
+        shared_embedded::net::udp_task(*cx.local.net_stack, *cx.local.udp_endpoints).await;
     }
 
-    #[task(local = [sim_net_stack])]
+    #[task(local = [sim_net_stack, sim_client_endpoints])]
     async fn sim_client_task(cx: sim_client_task::Context) {
-        shared_embedded::sim_client::sim_client_task(*cx.local.sim_net_stack).await;
+        shared_embedded::sim_client::sim_client_task(
+            *cx.local.sim_net_stack,
+            *cx.local.sim_client_endpoints,
+        )
+        .await;
     }
 
-    #[task(local = [tc_rx, telemetry])]
+    #[task(local = [tc_handler_endpoints])]
     async fn tc_handler(cx: tc_handler::Context) {
-        shared_embedded::tmtc::tc_handler(*cx.local.tc_rx, cx.local.telemetry).await;
+        shared_embedded::tmtc::tc_handler(*cx.local.tc_handler_endpoints).await;
+    }
+
+    #[task(local = [tm_funnel_endpoints])]
+    async fn tm_funnel(cx: tm_funnel::Context) {
+        shared_embedded::tmtc::tm_funnel_task(*cx.local.tm_funnel_endpoints).await;
+    }
+
+    #[task(local = [event_manager_endpoints])]
+    async fn event_manager(cx: event_manager::Context) {
+        shared_embedded::event_manager::event_manager_task(*cx.local.event_manager_endpoints).await;
+    }
+
+    #[task(local = [pcdu_handler])]
+    async fn pcdu_task(cx: pcdu_task::Context) {
+        shared_embedded::pcdu::pcdu_task(cx.local.pcdu_handler).await;
     }
 }

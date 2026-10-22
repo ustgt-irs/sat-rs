@@ -27,6 +27,7 @@ pub mod tmtc;
     num_enum::TryFromPrimitive,
     num_enum::IntoPrimitive,
 )]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(u32)]
 pub enum ComponentId {
     Controller,
@@ -222,6 +223,7 @@ pub const fn recovery_event_id(event: satrs::fdir::RecoveryEvent) -> u16 {
     num_enum::TryFromPrimitive,
 )]
 #[repr(u32)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum DeviceMode {
     Off = 0,
     On = 1,

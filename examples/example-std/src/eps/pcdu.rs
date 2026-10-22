@@ -1,6 +1,5 @@
 use std::{
-    cell::RefCell,
-    collections::{HashMap, VecDeque},
+    collections::VecDeque,
     sync::{Arc, Mutex, mpsc},
 };
 
@@ -9,120 +8,29 @@ use minisim_types::{
     SimReply, SimRequestWithTime,
     eps::{PcduReply, PcduRequest},
 };
-use num_enum::{IntoPrimitive, TryFromPrimitive};
 use satrs::spacepackets::CcsdsPacketIdAndPsc;
-use serde::{Deserialize, Serialize};
-use strum::IntoEnumIterator as _;
 use types::{
-    ComponentId, DeviceMode,
+    ComponentId,
     ccsds::{CcsdsTcPacketOwned, CcsdsTmPacketOwned},
     pcdu::{
-        self, SwitchId, SwitchMapBinary, SwitchMapBinaryWrapper, SwitchRequest, SwitchState,
-        SwitchStateBinary, SwitchesBitfield,
+        self, SwitchId, SwitchMapBinaryWrapper, SwitchRequest, SwitchSet, SwitchStateBinary,
+        SwitchesBitfield,
     },
 };
 
 use crate::ccsds::pack_ccsds_tm_packet_for_now;
 
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SwitchSet {
-    pub valid: bool,
-    pub switch_map: SwitchMap,
-}
-
-impl SwitchSet {
-    pub fn new(switch_map: SwitchMap) -> Self {
-        Self {
-            valid: true,
-            switch_map,
-        }
-    }
-
-    pub fn new_with_init_switches_unknown() -> Self {
-        let wrapper = SwitchMapWrapper::default();
-        Self::new(wrapper.0)
-    }
-
-    pub fn as_bitfield(&self) -> Option<SwitchesBitfield> {
-        for entry in SwitchId::iter() {
-            if !self.switch_map.contains_key(&entry) {
-                return None;
-            }
-        }
-        Some(
-            SwitchesBitfield::builder()
-                .with_magnetorquer(*self.switch_map.get(&SwitchId::Mgt).unwrap() == SwitchState::On)
-                .with_mgm1(*self.switch_map.get(&SwitchId::Mgm1).unwrap() == SwitchState::On)
-                .with_mgm0(*self.switch_map.get(&SwitchId::Mgm0).unwrap() == SwitchState::On)
-                .build(),
-        )
-    }
-
-    #[allow(dead_code)]
-    pub fn set_switch_state(&mut self, switch_id: SwitchId, state: SwitchState) -> bool {
-        if !self.switch_map.contains_key(&switch_id) {
-            return false;
-        }
-        *self.switch_map.get_mut(&switch_id).unwrap() = state;
-        true
-    }
-}
-
-pub type SwitchMap = HashMap<SwitchId, SwitchState>;
-
-pub struct SwitchMapWrapper(pub SwitchMap);
-
-impl Default for SwitchMapWrapper {
-    fn default() -> Self {
-        let mut switch_map = SwitchMap::default();
-        for entry in SwitchId::iter() {
-            switch_map.insert(entry, SwitchState::Unknown);
-        }
-        Self(switch_map)
-    }
-}
-
-impl SwitchMapWrapper {
-    #[allow(dead_code)]
-    pub fn new_with_init_switches_off() -> Self {
-        let mut switch_map = SwitchMap::default();
-        for entry in SwitchId::iter() {
-            switch_map.insert(entry, SwitchState::Off);
-        }
-        Self(switch_map)
-    }
-
-    pub fn from_binary_switch_map_ref(switch_map: &SwitchMapBinary) -> Self {
-        Self(
-            switch_map
-                .iter()
-                .map(|(key, value)| (*key, SwitchState::from(*value)))
-                .collect(),
-        )
-    }
-}
-
 pub type SharedSwitchSet = Arc<Mutex<SwitchSet>>;
 
-pub trait SerialInterface {
-    type Error: core::fmt::Debug;
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct CommError;
 
-    /// Send some data via the serial interface.
-    fn send(&self, data: &[u8]) -> Result<(), Self::Error>;
-    /// Receive all replies received on the serial interface so far. This function takes a closure
-    /// and call its for each received packet, passing the received packet into it.
-    fn try_recv_replies<ReplyHandler: FnMut(&[u8])>(
-        &self,
-        f: ReplyHandler,
-    ) -> Result<(), Self::Error>;
-}
-
-pub struct SerialInterfaceToSim {
+pub struct SimInterface {
     pub sim_request_tx: mpsc::Sender<SimRequestWithTime>,
     pub sim_reply_rx: mpsc::Receiver<SimReply>,
 }
 
-impl SerialInterfaceToSim {
+impl SimInterface {
     pub fn new(
         sim_request_tx: mpsc::Sender<SimRequestWithTime>,
         sim_reply_rx: mpsc::Receiver<SimReply>,
@@ -132,129 +40,98 @@ impl SerialInterfaceToSim {
             sim_reply_rx,
         }
     }
-}
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, TryFromPrimitive, IntoPrimitive)]
-#[repr(u32)]
-pub enum SetId {
-    SwitcherSet = 0,
-}
-
-impl SerialInterface for SerialInterfaceToSim {
-    type Error = ();
-
-    fn send(&self, data: &[u8]) -> Result<(), Self::Error> {
-        let request: PcduRequest = postcard::from_bytes(data).expect("expected a PCDU request");
+    fn send(&mut self, request: PcduRequest) -> Result<(), CommError> {
         self.sim_request_tx
             .send(SimRequestWithTime::new_with_epoch_time(request))
-            .expect("failed to send request to simulation");
-        Ok(())
+            .map_err(|_| CommError)
     }
 
-    fn try_recv_replies<ReplyHandler: FnMut(&[u8])>(
-        &self,
-        mut f: ReplyHandler,
-    ) -> Result<(), Self::Error> {
+    fn try_recv_reply(&mut self) -> Option<PcduReply> {
         loop {
             match self.sim_reply_rx.try_recv() {
-                Ok(reply) => {
-                    let reply = postcard::to_allocvec(&reply).unwrap();
-                    f(&reply);
+                Ok(SimReply::Pcdu(reply)) => return Some(reply),
+                Ok(sim_reply) => log::warn!("unexpected PCDU SIM reply: {sim_reply:?}"),
+                Err(mpsc::TryRecvError::Empty) => return None,
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    log::warn!("sim reply sender has disconnected");
+                    return None;
                 }
-                Err(e) => match e {
-                    mpsc::TryRecvError::Empty => break,
-                    mpsc::TryRecvError::Disconnected => {
-                        log::warn!("sim reply sender has disconnected");
-                        break;
-                    }
-                },
             }
         }
-        Ok(())
     }
 }
 
+/// Interface for an ideal PCDU which never fails.
 #[derive(Default)]
-pub struct SerialInterfaceDummy {
-    // Need interior mutability here for both fields.
-    pub switch_map: RefCell<SwitchMapBinaryWrapper>,
-    pub reply_deque: RefCell<VecDeque<SimReply>>,
+pub struct DummyInterface {
+    switch_map: SwitchMapBinaryWrapper,
+    replies: VecDeque<PcduReply>,
 }
 
-impl SerialInterface for SerialInterfaceDummy {
-    type Error = ();
-
-    fn send(&self, data: &[u8]) -> Result<(), Self::Error> {
-        let pcdu_req: PcduRequest = postcard::from_bytes(data).unwrap();
-        let switch_map_mut = &mut self.switch_map.borrow_mut().0;
-        match pcdu_req {
+impl DummyInterface {
+    fn send(&mut self, request: PcduRequest) {
+        match request {
             PcduRequest::SwitchDevice { switch, state } => {
-                switch_map_mut
+                self.switch_map
+                    .0
                     .insert(switch, state)
                     .expect("switch map capacity exceeded");
             }
-            PcduRequest::RequestSwitchInfo => {
-                let mut reply_deque_mut = self.reply_deque.borrow_mut();
-                reply_deque_mut.push_back(SimReply::from(PcduReply::SwitchInfo(
-                    switch_map_mut.clone(),
-                )));
-            }
-        };
-        Ok(())
-    }
-
-    fn try_recv_replies<ReplyHandler: FnMut(&[u8])>(
-        &self,
-        mut f: ReplyHandler,
-    ) -> Result<(), Self::Error> {
-        if self.reply_queue_empty() {
-            return Ok(());
-        }
-        loop {
-            let reply = self.next_reply_serialized();
-            f(&reply);
-            if self.reply_queue_empty() {
-                break;
+            PcduRequest::RequestSwitchInfo { id } => {
+                self.replies.push_back(PcduReply::SwitchInfo {
+                    id,
+                    switch_map: self.switch_map.0.clone(),
+                })
             }
         }
-        Ok(())
     }
 }
 
-impl SerialInterfaceDummy {
-    fn next_reply_serialized(&self) -> Vec<u8> {
-        let mut reply_deque_mut = self.reply_deque.borrow_mut();
-        let next_reply = reply_deque_mut.pop_front().unwrap();
-        postcard::to_allocvec(&next_reply).unwrap()
-    }
-
-    fn reply_queue_empty(&self) -> bool {
-        self.reply_deque.borrow().is_empty()
-    }
+/// Wraps the dummy interface. It records all requests and replies and can make sending fail.
+#[derive(Default)]
+pub struct TestInterface {
+    pub dummy: DummyInterface,
+    pub sent_requests: VecDeque<PcduRequest>,
+    pub received_replies: VecDeque<PcduReply>,
+    pub fail_next_send: bool,
 }
 
-pub enum SerialSimInterfaceWrapper {
-    Dummy(SerialInterfaceDummy),
-    Sim(SerialInterfaceToSim),
+pub enum PcduCommunication {
+    Dummy(DummyInterface),
+    Sim(SimInterface),
+    #[allow(dead_code)]
+    Test(TestInterface),
 }
 
-impl SerialInterface for SerialSimInterfaceWrapper {
-    type Error = ();
-
-    fn send(&self, data: &[u8]) -> Result<(), Self::Error> {
+impl PcduCommunication {
+    fn send(&mut self, request: PcduRequest) -> Result<(), CommError> {
         match self {
-            SerialSimInterfaceWrapper::Dummy(dummy) => dummy.send(data),
-            SerialSimInterfaceWrapper::Sim(sim) => sim.send(data),
+            PcduCommunication::Dummy(dummy) => {
+                dummy.send(request);
+                Ok(())
+            }
+            PcduCommunication::Sim(sim) => sim.send(request),
+            PcduCommunication::Test(test) => {
+                if core::mem::take(&mut test.fail_next_send) {
+                    return Err(CommError);
+                }
+                test.sent_requests.push_back(request);
+                test.dummy.send(request);
+                Ok(())
+            }
         }
     }
 
-    fn try_recv_replies<ReplyHandler: FnMut(&[u8])>(
-        &self,
-        f: ReplyHandler,
-    ) -> Result<(), Self::Error> {
+    fn try_recv_reply(&mut self) -> Option<PcduReply> {
         match self {
-            SerialSimInterfaceWrapper::Dummy(dummy) => dummy.try_recv_replies(f),
-            SerialSimInterfaceWrapper::Sim(sim) => sim.try_recv_replies(f),
+            PcduCommunication::Dummy(dummy) => dummy.replies.pop_front(),
+            PcduCommunication::Sim(sim) => sim.try_recv_reply(),
+            PcduCommunication::Test(test) => {
+                let reply = test.dummy.replies.pop_front()?;
+                test.received_replies.push_back(reply.clone());
+                Some(reply)
+            }
         }
     }
 }
@@ -265,40 +142,49 @@ pub enum OpCode {
     PollAndRecvReplies = 1,
 }
 
+/// TC which is answered with the next switch info reply.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+enum SwitchInfoRecipient {
+    Ping(CcsdsPacketIdAndPsc),
+    GetSwitches(CcsdsPacketIdAndPsc),
+}
+
 /// Example PCDU device handler.
 #[allow(clippy::too_many_arguments)]
-pub struct PcduHandler<ComInterface: SerialInterface> {
-    dev_str: &'static str,
+pub struct PcduHandler {
     switch_request_rx: mpsc::Receiver<SwitchRequest>,
     tc_rx: std::sync::mpsc::Receiver<CcsdsTcPacketOwned>,
     tm_tx: mpsc::SyncSender<CcsdsTmPacketOwned>,
-    pub com_interface: ComInterface,
-    shared_switch_map: Arc<Mutex<SwitchSet>>,
-    mode: DeviceMode,
+    pub com: PcduCommunication,
+    shared_switch_map: SharedSwitchSet,
     stamp_helper: TimestampHelper,
+    /// ID of the switch info request in flight. Only the reply with this ID is accepted, so a late
+    /// reply can not answer a newer request.
+    switch_info_pending: Option<u16>,
+    next_switch_info_id: u16,
+    switch_info_recipients: Vec<SwitchInfoRecipient>,
     event_tx: mpsc::SyncSender<pcdu::Event>,
 }
 
-impl<ComInterface: SerialInterface> PcduHandler<ComInterface> {
+impl PcduHandler {
     pub fn new(
         tc_rx: std::sync::mpsc::Receiver<CcsdsTcPacketOwned>,
         tm_tx: std::sync::mpsc::SyncSender<CcsdsTmPacketOwned>,
         switch_request_rx: mpsc::Receiver<SwitchRequest>,
-        com_interface: ComInterface,
-        shared_switch_map: Arc<Mutex<SwitchSet>>,
-        init_mode: DeviceMode,
+        com: PcduCommunication,
+        shared_switch_map: SharedSwitchSet,
         event_tx: mpsc::SyncSender<pcdu::Event>,
     ) -> Self {
         Self {
-            dev_str: "PCDU",
             tc_rx,
             switch_request_rx,
             tm_tx,
-            com_interface,
+            com,
             shared_switch_map,
             stamp_helper: TimestampHelper::default(),
-            // Start in normal mode by default. Assume that the PCDU itself is on by default.
-            mode: init_mode,
+            switch_info_pending: None,
+            next_switch_info_id: 0,
+            switch_info_recipients: Vec::new(),
             event_tx,
         }
     }
@@ -307,23 +193,19 @@ impl<ComInterface: SerialInterface> PcduHandler<ComInterface> {
         match op_code {
             OpCode::RegularOp => {
                 self.stamp_helper.update_from_now();
+                // A late reply still answers the request of the last cycle.
+                self.poll_and_handle_replies();
+                self.drop_unanswered_switch_info_request();
                 // Handle requests.
                 self.handle_telecommands();
                 self.handle_switch_requests();
-                // Poll the switch states and/or telemetry regularly here.
-                if self.mode() == DeviceMode::Normal || self.mode() == DeviceMode::On {
-                    self.handle_periodic_commands();
-                }
+                // Sent after all switch commands, so the reply is fresh for all recipients.
+                self.request_switch_info();
             }
             OpCode::PollAndRecvReplies => {
                 self.poll_and_handle_replies();
             }
         }
-    }
-
-    #[inline]
-    pub fn mode(&self) -> DeviceMode {
-        self.mode
     }
 
     pub fn handle_telecommands(&mut self) {
@@ -339,19 +221,12 @@ impl<ComInterface: SerialInterface> PcduHandler<ComInterface> {
                                 tc_id.raw()
                             );
                             match request {
-                                pcdu::request::Request::Ping => {
-                                    self.send_tm(Some(tc_id), pcdu::response::Response::Ok)
-                                }
-                                pcdu::request::Request::GetSwitches => self.send_tm(
-                                    Some(tc_id),
-                                    pcdu::response::Response::Switches(
-                                        self.shared_switch_map
-                                            .lock()
-                                            .unwrap()
-                                            .as_bitfield()
-                                            .expect("could not build switches response"),
-                                    ),
-                                ),
+                                pcdu::request::Request::Ping => self
+                                    .switch_info_recipients
+                                    .push(SwitchInfoRecipient::Ping(tc_id)),
+                                pcdu::request::Request::GetSwitches => self
+                                    .switch_info_recipients
+                                    .push(SwitchInfoRecipient::GetSwitches(tc_id)),
                                 pcdu::request::Request::EnableSwitches(switches) => {
                                     self.handle_switches_bitfield_request(
                                         switches,
@@ -363,9 +238,6 @@ impl<ComInterface: SerialInterface> PcduHandler<ComInterface> {
                                         switches,
                                         SwitchStateBinary::Off,
                                     );
-                                }
-                                pcdu::request::Request::Mode(device_mode) => {
-                                    self.switch_mode(tc_id, device_mode)
                                 }
                             }
                         }
@@ -382,6 +254,44 @@ impl<ComInterface: SerialInterface> PcduHandler<ComInterface> {
                 },
             }
         }
+    }
+
+    /// Pings are answered with the switch info reply as well, so they cover the round trip to the
+    /// PCDU.
+    pub fn request_switch_info(&mut self) {
+        let id = self.next_switch_info_id;
+        self.next_switch_info_id = id.wrapping_add(1);
+        if self
+            .com
+            .send(PcduRequest::RequestSwitchInfo { id })
+            .is_err()
+        {
+            log::warn!("requesting PCDU switch info failed");
+            self.invalidate_switch_set();
+            if let Err(e) = self.event_tx.send(pcdu::Event::SerialCommError) {
+                log::warn!("failed to send comm error event: {}", e);
+            }
+            return;
+        }
+        self.switch_info_pending = Some(id);
+    }
+
+    fn drop_unanswered_switch_info_request(&mut self) {
+        if self.switch_info_pending.take().is_some() {
+            log::warn!("switch info request timed out");
+            self.invalidate_switch_set();
+        }
+        for recipient in self.switch_info_recipients.drain(..) {
+            log::warn!("no switch info reply for {:?}", recipient);
+        }
+    }
+
+    /// The switch set is only valid while the PCDU answers.
+    fn invalidate_switch_set(&self) {
+        self.shared_switch_map
+            .lock()
+            .expect("failed to lock switch map")
+            .valid = false;
     }
 
     pub fn handle_switches_bitfield_request(
@@ -409,44 +319,6 @@ impl<ComInterface: SerialInterface> PcduHandler<ComInterface> {
             }
             Err(e) => {
                 log::warn!("failed to pack TM packet: {}", e);
-            }
-        }
-    }
-
-    fn switch_mode(&mut self, requestor: CcsdsPacketIdAndPsc, mode: DeviceMode) {
-        log::info!("{}: transitioning to mode {:?}", self.dev_str, mode);
-        self.mode = mode;
-        if self.mode() == DeviceMode::Off {
-            self.shared_switch_map.lock().unwrap().valid = false;
-        }
-        log::info!("{} announcing mode: {:?}", self.dev_str, self.mode);
-        self.send_telemetry(Some(requestor), pcdu::response::Response::Ok);
-    }
-
-    pub fn send_telemetry(
-        &self,
-        tc_id: Option<CcsdsPacketIdAndPsc>,
-        response: pcdu::response::Response,
-    ) {
-        match pack_ccsds_tm_packet_for_now(ComponentId::EpsPcdu, tc_id, &response) {
-            Ok(packet) => {
-                if let Err(e) = self.tm_tx.send(packet) {
-                    log::warn!("failed to send TM packet: {}", e);
-                }
-            }
-            Err(e) => {
-                log::warn!("failed to pack TM packet: {}", e);
-            }
-        }
-    }
-
-    pub fn handle_periodic_commands(&self) {
-        let pcdu_req = PcduRequest::RequestSwitchInfo;
-        let pcdu_req_ser = postcard::to_allocvec(&pcdu_req).unwrap();
-        if let Err(_e) = self.com_interface.send(&pcdu_req_ser) {
-            log::warn!("polling PCDU switch info failed");
-            if let Err(e) = self.event_tx.send(pcdu::Event::SerialCommError) {
-                log::warn!("failed to send comm error event: {}", e);
             }
         }
     }
@@ -489,9 +361,8 @@ impl<ComInterface: SerialInterface> PcduHandler<ComInterface> {
             switch: switch_id,
             state,
         };
-        let pcdu_req_ser = postcard::to_allocvec(&pcdu_req).unwrap();
-        self.com_interface
-            .send(&pcdu_req_ser)
+        self.com
+            .send(pcdu_req)
             .expect("failed to send switch request to PCDU");
     }
 
@@ -513,26 +384,36 @@ impl<ComInterface: SerialInterface> PcduHandler<ComInterface> {
     }
 
     pub fn poll_and_handle_replies(&mut self) {
-        if let Err(e) = self.com_interface.try_recv_replies(|reply| {
-            let sim_reply: SimReply = postcard::from_bytes(reply).expect("invalid reply format");
-            let SimReply::Pcdu(pcdu_reply) = sim_reply else {
-                log::warn!("unexpected PCDU SIM reply: {sim_reply:?}");
-                return;
-            };
-            match pcdu_reply {
-                PcduReply::SwitchInfo(switch_info) => {
-                    let switch_map_wrapper =
-                        SwitchMapWrapper::from_binary_switch_map_ref(&switch_info);
-                    let mut shared_switch_map = self
+        while let Some(reply) = self.com.try_recv_reply() {
+            match reply {
+                PcduReply::SwitchInfo { id, switch_map } => {
+                    if self.switch_info_pending != Some(id) {
+                        log::warn!("ignoring switch info reply with unexpected ID {}", id);
+                        continue;
+                    }
+                    // Treated like a missing reply, so the request times out.
+                    let Some((switch_set, switches)) =
+                        SwitchSet::from_binary_switch_map(&switch_map)
+                    else {
+                        log::warn!("ignoring switch info reply with missing switches");
+                        continue;
+                    };
+                    self.switch_info_pending = None;
+                    *self
                         .shared_switch_map
                         .lock()
-                        .expect("failed to lock switch map");
-                    shared_switch_map.switch_map = switch_map_wrapper.0;
-                    shared_switch_map.valid = true;
+                        .expect("failed to lock switch map") = switch_set;
+                    for recipient in core::mem::take(&mut self.switch_info_recipients) {
+                        match recipient {
+                            SwitchInfoRecipient::Ping(tc_id) => {
+                                self.send_tm(Some(tc_id), pcdu::response::Response::Ok)
+                            }
+                            SwitchInfoRecipient::GetSwitches(tc_id) => self
+                                .send_tm(Some(tc_id), pcdu::response::Response::Switches(switches)),
+                        }
+                    }
                 }
             }
-        }) {
-            log::warn!("receiving PCDU replies failed: {e:?}");
         }
     }
 }
@@ -560,61 +441,16 @@ mod tests {
         )
     }
 
-    #[derive(Default)]
-    pub struct SerialInterfaceTest {
-        pub inner: SerialInterfaceDummy,
-        pub send_queue: RefCell<VecDeque<Vec<u8>>>,
-        pub reply_queue: RefCell<VecDeque<Vec<u8>>>,
-        /// Makes the next `send` call fail, to exercise comm-error handling.
-        pub fail_next_send: RefCell<bool>,
-    }
-
-    impl SerialInterface for SerialInterfaceTest {
-        type Error = ();
-
-        fn send(&self, data: &[u8]) -> Result<(), Self::Error> {
-            if self.fail_next_send.replace(false) {
-                return Err(());
-            }
-            let mut send_queue_mut = self.send_queue.borrow_mut();
-            send_queue_mut.push_back(data.to_vec());
-            self.inner.send(data)
-        }
-
-        fn try_recv_replies<ReplyHandler: FnMut(&[u8])>(
-            &self,
-            mut f: ReplyHandler,
-        ) -> Result<(), Self::Error> {
-            if self.inner.reply_queue_empty() {
-                return Ok(());
-            }
-            loop {
-                let reply = self.inner.next_reply_serialized();
-                self.reply_queue.borrow_mut().push_back(reply.clone());
-                f(&reply);
-                if self.inner.reply_queue_empty() {
-                    break;
-                }
-            }
-            Ok(())
-        }
-    }
-
-    #[allow(dead_code)]
     pub struct PcduTestbench {
-        pub mode_request_tx: mpsc::SyncSender<types::pcdu::request::Request>,
-        pub mode_reply_rx_to_parent: mpsc::Receiver<types::pcdu::response::Response>,
         pub tc_tx: mpsc::SyncSender<CcsdsTcPacketOwned>,
         pub tm_rx: mpsc::Receiver<CcsdsTmPacketOwned>,
         pub switch_request_tx: mpsc::Sender<SwitchRequest>,
         pub event_rx: mpsc::Receiver<pcdu::Event>,
-        pub handler: PcduHandler<SerialInterfaceTest>,
+        pub handler: PcduHandler,
     }
 
     impl PcduTestbench {
         pub fn new() -> Self {
-            let (mode_request_tx, _mode_request_rx) = mpsc::sync_channel(5);
-            let (_mode_reply_tx_to_parent, mode_reply_rx_to_parent) = mpsc::sync_channel(5);
             let (tc_tx, tc_rx) = mpsc::sync_channel(5);
             let (tm_tx, tm_rx) = mpsc::sync_channel(5);
             let (switch_request_tx, switch_reqest_rx) = mpsc::channel();
@@ -625,14 +461,11 @@ mod tests {
                 tc_rx,
                 tm_tx.clone(),
                 switch_reqest_rx,
-                SerialInterfaceTest::default(),
+                PcduCommunication::Test(TestInterface::default()),
                 shared_switch_map,
-                DeviceMode::Off,
                 event_tx,
             );
             Self {
-                mode_request_tx,
-                mode_reply_rx_to_parent,
                 tc_tx,
                 tm_rx,
                 switch_request_tx,
@@ -641,30 +474,32 @@ mod tests {
             }
         }
 
-        pub fn verify_switch_info_req_was_sent(&self, expected_queue_len: usize) {
-            // Check that there is now communication happening.
-            let mut send_queue_mut = self.handler.com_interface.send_queue.borrow_mut();
-            assert_eq!(send_queue_mut.len(), expected_queue_len);
-            let packet_sent = send_queue_mut.pop_front().unwrap();
-            drop(send_queue_mut);
-            let pcdu_req: PcduRequest = postcard::from_bytes(&packet_sent).unwrap();
-            assert_eq!(pcdu_req, PcduRequest::RequestSwitchInfo);
+        fn test_interface(&mut self) -> &mut TestInterface {
+            match &mut self.handler.com {
+                PcduCommunication::Test(test) => test,
+                _ => panic!("unexpected PCDU interface"),
+            }
+        }
+
+        pub fn verify_switch_info_req_was_sent(&mut self, expected_queue_len: usize) {
+            let sent_requests = &mut self.test_interface().sent_requests;
+            assert_eq!(sent_requests.len(), expected_queue_len);
+            assert!(matches!(
+                sent_requests.pop_front().unwrap(),
+                PcduRequest::RequestSwitchInfo { .. }
+            ));
         }
 
         pub fn verify_switch_req_was_sent(
-            &self,
+            &mut self,
             expected_queue_len: usize,
             switch_id: SwitchId,
             target_state: SwitchStateBinary,
         ) {
-            // Check that there is now communication happening.
-            let mut send_queue_mut = self.handler.com_interface.send_queue.borrow_mut();
-            assert_eq!(send_queue_mut.len(), expected_queue_len);
-            let packet_sent = send_queue_mut.pop_front().unwrap();
-            drop(send_queue_mut);
-            let pcdu_req: PcduRequest = postcard::from_bytes(&packet_sent).unwrap();
+            let sent_requests = &mut self.test_interface().sent_requests;
+            assert_eq!(sent_requests.len(), expected_queue_len);
             assert_eq!(
-                pcdu_req,
+                sent_requests.pop_front().unwrap(),
                 PcduRequest::SwitchDevice {
                     switch: switch_id,
                     state: target_state
@@ -673,27 +508,22 @@ mod tests {
         }
 
         pub fn verify_switch_reply_received(
-            &self,
+            &mut self,
             expected_queue_len: usize,
             expected_map: SwitchMapBinary,
         ) {
-            // Check that a switch reply was read back.
-            let mut reply_received_mut = self.handler.com_interface.reply_queue.borrow_mut();
-            assert_eq!(reply_received_mut.len(), expected_queue_len);
-            let reply_received = reply_received_mut.pop_front().unwrap();
-            let sim_reply: SimReply = postcard::from_bytes(&reply_received).unwrap();
-            assert_eq!(
-                sim_reply,
-                SimReply::Pcdu(PcduReply::SwitchInfo(expected_map))
-            );
+            let received_replies = &mut self.test_interface().received_replies;
+            assert_eq!(received_replies.len(), expected_queue_len);
+            let PcduReply::SwitchInfo { switch_map, .. } = received_replies.pop_front().unwrap();
+            assert_eq!(switch_map, expected_map);
         }
     }
 
     #[test]
     fn test_periodic_command_send_failure_sends_event() {
-        let testbench = PcduTestbench::new();
-        *testbench.handler.com_interface.fail_next_send.borrow_mut() = true;
-        testbench.handler.handle_periodic_commands();
+        let mut testbench = PcduTestbench::new();
+        testbench.test_interface().fail_next_send = true;
+        testbench.handler.request_switch_info();
         let event = testbench
             .event_rx
             .try_recv()
@@ -702,45 +532,13 @@ mod tests {
     }
 
     #[test]
-    fn test_basic_handler() {
+    fn test_periodic_poll() {
         let mut testbench = PcduTestbench::new();
-        assert_eq!(testbench.handler.com_interface.send_queue.borrow().len(), 0);
-        assert_eq!(
-            testbench.handler.com_interface.reply_queue.borrow().len(),
-            0
-        );
-        assert_eq!(testbench.handler.mode(), DeviceMode::Off);
+        assert!(!testbench.handler.shared_switch_map.lock().unwrap().valid);
         testbench.handler.periodic_operation(OpCode::RegularOp);
         testbench
             .handler
             .periodic_operation(OpCode::PollAndRecvReplies);
-        // Handler is OFF, no changes expected.
-        assert_eq!(testbench.handler.com_interface.send_queue.borrow().len(), 0);
-        assert_eq!(
-            testbench.handler.com_interface.reply_queue.borrow().len(),
-            0
-        );
-        assert_eq!(testbench.handler.mode(), DeviceMode::Off);
-    }
-
-    #[test]
-    fn test_normal_mode() {
-        let mut testbench = PcduTestbench::new();
-        testbench
-            .tc_tx
-            .send(create_request_tc(pcdu::request::Request::Mode(
-                DeviceMode::Normal,
-            )))
-            .unwrap();
-        let switch_map_shared = testbench.handler.shared_switch_map.lock().unwrap();
-        assert!(switch_map_shared.valid);
-        drop(switch_map_shared);
-        testbench.handler.periodic_operation(OpCode::RegularOp);
-        testbench
-            .handler
-            .periodic_operation(OpCode::PollAndRecvReplies);
-        // Check correctness of mode.
-        assert_eq!(testbench.handler.mode(), DeviceMode::Normal);
 
         testbench.verify_switch_info_req_was_sent(1);
         testbench.verify_switch_reply_received(1, SwitchMapBinaryWrapper::default().0);
@@ -751,14 +549,166 @@ mod tests {
     }
 
     #[test]
-    fn test_switch_request_handling() {
+    fn test_ping_round_trip() {
         let mut testbench = PcduTestbench::new();
         testbench
             .tc_tx
-            .send(create_request_tc(pcdu::request::Request::Mode(
-                DeviceMode::Normal,
+            .send(create_request_tc(pcdu::request::Request::Ping))
+            .unwrap();
+        testbench.handler.periodic_operation(OpCode::RegularOp);
+        // The ping shares the request with the periodic poll.
+        testbench.verify_switch_info_req_was_sent(1);
+        assert!(testbench.tm_rx.try_recv().is_err());
+
+        testbench
+            .handler
+            .periodic_operation(OpCode::PollAndRecvReplies);
+        let tm = testbench.tm_rx.try_recv().expect("no ping reply");
+        assert!(tm.tm_header.tc_id.is_some());
+        let response: pcdu::response::Response = postcard::from_bytes(&tm.payload).unwrap();
+        assert!(matches!(response, pcdu::response::Response::Ok));
+    }
+
+    #[test]
+    fn test_ping_timeout() {
+        let mut testbench = PcduTestbench::new();
+        testbench
+            .tc_tx
+            .send(create_request_tc(pcdu::request::Request::Ping))
+            .unwrap();
+        testbench.handler.periodic_operation(OpCode::RegularOp);
+        // Drop the reply, so the ping never completes.
+        testbench.test_interface().dummy.replies.clear();
+        testbench.handler.periodic_operation(OpCode::RegularOp);
+        assert!(testbench.handler.switch_info_recipients.is_empty());
+        assert!(testbench.tm_rx.try_recv().is_err());
+        assert!(!testbench.handler.shared_switch_map.lock().unwrap().valid);
+    }
+
+    #[test]
+    fn test_one_switch_info_request_per_cycle() {
+        let mut testbench = PcduTestbench::new();
+        testbench
+            .tc_tx
+            .send(create_request_tc(pcdu::request::Request::Ping))
+            .unwrap();
+        testbench
+            .tc_tx
+            .send(create_request_tc(pcdu::request::Request::GetSwitches))
+            .unwrap();
+        testbench.handler.periodic_operation(OpCode::RegularOp);
+        testbench.verify_switch_info_req_was_sent(1);
+
+        testbench
+            .handler
+            .periodic_operation(OpCode::PollAndRecvReplies);
+        testbench.tm_rx.try_recv().expect("no ping reply");
+        testbench.tm_rx.try_recv().expect("no switches reply");
+    }
+
+    #[test]
+    fn test_get_switches_is_not_answered_with_stale_reply() {
+        let mut testbench = PcduTestbench::new();
+        // Periodic request whose reply with all switches off is not polled in this cycle.
+        testbench.handler.periodic_operation(OpCode::RegularOp);
+
+        testbench
+            .tc_tx
+            .send(create_request_tc(pcdu::request::Request::EnableSwitches(
+                SwitchesBitfield::builder()
+                    .with_magnetorquer(false)
+                    .with_mgm1(false)
+                    .with_mgm0(true)
+                    .build(),
             )))
             .unwrap();
+        testbench
+            .tc_tx
+            .send(create_request_tc(pcdu::request::Request::GetSwitches))
+            .unwrap();
+        testbench.handler.periodic_operation(OpCode::RegularOp);
+        testbench
+            .handler
+            .periodic_operation(OpCode::PollAndRecvReplies);
+
+        let tm = testbench.tm_rx.try_recv().expect("no switches reply");
+        let response: pcdu::response::Response = postcard::from_bytes(&tm.payload).unwrap();
+        let pcdu::response::Response::Switches(switches) = response else {
+            panic!("unexpected response {response:?}");
+        };
+        assert!(switches.mgm0());
+        assert!(testbench.tm_rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn test_late_reply_is_ignored() {
+        let mut testbench = PcduTestbench::new();
+        testbench.handler.periodic_operation(OpCode::RegularOp);
+        // Hold back the reply with all switches off, so it arrives after the timeout.
+        let late_reply = testbench
+            .test_interface()
+            .dummy
+            .replies
+            .pop_front()
+            .unwrap();
+
+        testbench
+            .tc_tx
+            .send(create_request_tc(pcdu::request::Request::EnableSwitches(
+                SwitchesBitfield::builder()
+                    .with_magnetorquer(false)
+                    .with_mgm1(false)
+                    .with_mgm0(true)
+                    .build(),
+            )))
+            .unwrap();
+        testbench
+            .tc_tx
+            .send(create_request_tc(pcdu::request::Request::GetSwitches))
+            .unwrap();
+        testbench.handler.periodic_operation(OpCode::RegularOp);
+        testbench
+            .test_interface()
+            .dummy
+            .replies
+            .push_front(late_reply);
+        testbench
+            .handler
+            .periodic_operation(OpCode::PollAndRecvReplies);
+
+        let tm = testbench.tm_rx.try_recv().expect("no switches reply");
+        let response: pcdu::response::Response = postcard::from_bytes(&tm.payload).unwrap();
+        let pcdu::response::Response::Switches(switches) = response else {
+            panic!("unexpected response {response:?}");
+        };
+        assert!(switches.mgm0());
+        assert!(testbench.handler.shared_switch_map.lock().unwrap().valid);
+    }
+
+    #[test]
+    fn test_reply_with_missing_switches_is_ignored() {
+        let mut testbench = PcduTestbench::new();
+        testbench
+            .tc_tx
+            .send(create_request_tc(pcdu::request::Request::GetSwitches))
+            .unwrap();
+        testbench.handler.periodic_operation(OpCode::RegularOp);
+        let replies = &mut testbench.test_interface().dummy.replies;
+        let Some(PcduReply::SwitchInfo { switch_map, .. }) = replies.front_mut() else {
+            panic!("no switch info reply");
+        };
+        switch_map.remove(&SwitchId::Mgt);
+        testbench
+            .handler
+            .periodic_operation(OpCode::PollAndRecvReplies);
+
+        assert!(testbench.tm_rx.try_recv().is_err());
+        assert!(!testbench.handler.shared_switch_map.lock().unwrap().valid);
+    }
+
+    #[test]
+    fn test_switch_request_handling() {
+        let mut testbench = PcduTestbench::new();
         testbench
             .switch_request_tx
             .send(SwitchRequest::new(SwitchId::Mgm0, SwitchStateBinary::On))

@@ -9,6 +9,10 @@ serde = { version = "1", default-features = false, features = ["derive"] }
 tai-time = { version = "1", default-features = false, features = ["serde"] }
 thiserror = { version = "2", default-features = false }
 types = { path = "../types" }
+defmt = { version = "1", optional = true }
+
+[features]
+defmt = ["dep:defmt", "types/defmt"]
 
 [dev-dependencies]
 postcard = { version = "1", features = ["alloc"] }

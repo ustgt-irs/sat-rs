@@ -81,3 +81,25 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: sudo apt update && sudo apt install -y libudev-dev
       - run: cargo clippy -- -D warnings
+
+  embedded:
+    name: Embedded examples
+    runs-on: ubuntu-latest
+    # The embedded examples are a separate workspace.
+    defaults:
+      run:
+        working-directory: examples/embedded
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: thumbv7em-none-eabihf
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: examples/embedded
+      # Linker of the embedded examples.
+      - run: cargo install flip-link --locked
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy -- -D warnings
+      - run: cargo build --release

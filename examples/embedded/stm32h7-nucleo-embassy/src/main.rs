@@ -5,7 +5,7 @@ extern crate alloc;
 use embassy_executor::Spawner;
 use embassy_net::StackResources;
 use embassy_stm32::{bind_interrupts, eth, gpio, peripherals, rng};
-use static_cell::{ConstStaticCell, StaticCell};
+use static_cell::StaticCell;
 
 bind_interrupts!(struct Irqs {
     ETH => eth::InterruptHandler;
@@ -86,28 +86,27 @@ async fn main(spawner: Spawner) {
         seed,
     );
 
-    static TC_CHANNEL: ConstStaticCell<shared_embedded::tmtc::TcChannel> =
-        ConstStaticCell::new(shared_embedded::tmtc::TcChannel::new());
-    let tc_channel = TC_CHANNEL.take();
-    static TM_CHANNEL: ConstStaticCell<shared_embedded::tmtc::TmChannel> =
-        ConstStaticCell::new(shared_embedded::tmtc::TmChannel::new());
-    let tm_channel = TM_CHANNEL.take();
+    static CHANNELS: shared_embedded::channels::Channels =
+        shared_embedded::channels::Channels::new();
+    static SHARED_SWITCH_SET: StaticCell<shared_embedded::pcdu::SharedSwitchSet> =
+        StaticCell::new();
+    let shared_switch_set = SHARED_SWITCH_SET.init(shared_embedded::pcdu::new_shared_switch_set());
+    let pcdu_handler = shared_embedded::pcdu::PcduHandler::new(CHANNELS.pcdu(), shared_switch_set);
 
     spawner.spawn(net_stack_task(runner).expect("spawning net stack task failed"));
-    spawner.spawn(sim_client_task(stack).expect("spawning sim client task failed"));
     spawner.spawn(
-        udp_task(stack, tc_channel.sender(), tm_channel.receiver())
-            .expect("spawning UDP task failed"),
+        sim_client_task(stack, CHANNELS.sim_client()).expect("spawning sim client task failed"),
     );
+    spawner.spawn(udp_task(stack, CHANNELS.udp()).expect("spawning UDP task failed"));
     spawner.spawn(heartbeat(green_led).expect("spawning heartbeat task failed"));
+    spawner.spawn(heap_monitor().expect("spawning heap monitor task failed"));
     spawner.spawn(led_task(leds).expect("spawning LED task failed"));
+    spawner.spawn(tc_handler(CHANNELS.tc_handler()).expect("spawning TC handler task failed"));
+    spawner.spawn(tm_funnel(CHANNELS.tm_funnel()).expect("spawning TM funnel task failed"));
     spawner.spawn(
-        tc_handler(
-            tc_channel.receiver(),
-            shared_embedded::tmtc::Telemetry::new(tm_channel.sender()),
-        )
-        .expect("spawning TC handler task failed"),
+        event_manager(CHANNELS.event_manager()).expect("spawning event manager task failed"),
     );
+    spawner.spawn(pcdu_task(pcdu_handler).expect("spawning PCDU task failed"));
 }
 
 #[embassy_executor::task]
@@ -120,15 +119,17 @@ async fn net_stack_task(
 #[embassy_executor::task]
 async fn udp_task(
     stack: embassy_net::Stack<'static>,
-    tc_tx: shared_embedded::tmtc::TcSender,
-    tm_rx: shared_embedded::tmtc::TmReceiver,
+    endpoints: shared_embedded::net::UdpEndpoints,
 ) {
-    shared_embedded::net::udp_task(stack, tc_tx, tm_rx).await
+    shared_embedded::net::udp_task(stack, endpoints).await
 }
 
 #[embassy_executor::task]
-async fn sim_client_task(stack: embassy_net::Stack<'static>) {
-    shared_embedded::sim_client::sim_client_task(stack).await
+async fn sim_client_task(
+    stack: embassy_net::Stack<'static>,
+    endpoints: shared_embedded::sim_client::SimClientEndpoints,
+) {
+    shared_embedded::sim_client::sim_client_task(stack, endpoints).await
 }
 
 #[embassy_executor::task]
@@ -137,14 +138,35 @@ async fn heartbeat(mut led: gpio::Output<'static>) {
 }
 
 #[embassy_executor::task]
+async fn heap_monitor() {
+    shared_embedded::heap::heap_monitor_task(
+        stm32h7_nucleo_embassy::heap_used,
+        stm32h7_nucleo_embassy::HEAP_SIZE,
+    )
+    .await
+}
+
+#[embassy_executor::task]
 async fn led_task(mut leds: shared_embedded::leds::Leds) {
     shared_embedded::leds::led_task(&mut leds).await
 }
 
 #[embassy_executor::task]
-async fn tc_handler(
-    tc_rx: shared_embedded::tmtc::TcReceiver,
-    mut telemetry: shared_embedded::tmtc::Telemetry,
-) {
-    shared_embedded::tmtc::tc_handler(tc_rx, &mut telemetry).await
+async fn tc_handler(endpoints: shared_embedded::tmtc::TcHandlerEndpoints) {
+    shared_embedded::tmtc::tc_handler(endpoints).await
+}
+
+#[embassy_executor::task]
+async fn tm_funnel(endpoints: shared_embedded::tmtc::TmFunnelEndpoints) {
+    shared_embedded::tmtc::tm_funnel_task(endpoints).await
+}
+
+#[embassy_executor::task]
+async fn event_manager(endpoints: shared_embedded::event_manager::EventManagerEndpoints) {
+    shared_embedded::event_manager::event_manager_task(endpoints).await
+}
+
+#[embassy_executor::task]
+async fn pcdu_task(mut handler: shared_embedded::pcdu::PcduHandler) {
+    shared_embedded::pcdu::pcdu_task(&mut handler).await
 }

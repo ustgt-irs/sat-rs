@@ -6,6 +6,7 @@
 use core::time::Duration;
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Mode {
     AllOff,
     RedOn,
