@@ -31,7 +31,14 @@ pub async fn net_stack_task(runner: &mut embassy_net::Runner<'static, Device>) -
     runner.run().await
 }
 
-pub async fn udp_task(stack: embassy_net::Stack<'static>, tc_tx: TcSender, tm_rx: TmReceiver) {
+#[derive(Clone, Copy)]
+pub struct UdpEndpoints {
+    pub tc_tx: TcSender,
+    pub tm_rx: TmReceiver,
+}
+
+pub async fn udp_task(stack: embassy_net::Stack<'static>, endpoints: UdpEndpoints) {
+    let UdpEndpoints { tc_tx, tm_rx } = endpoints;
     // Task futures are allocated statically, so these buffers do not live on the stack.
     let mut rx_udp_meta = [PacketMetadata::EMPTY; 8];
     let mut tx_udp_meta = [PacketMetadata::EMPTY; 8];

@@ -79,13 +79,19 @@ impl SimReplySenders {
     }
 }
 
+#[derive(Clone, Copy)]
+pub struct SimClientEndpoints {
+    pub request_rx: SimRequestReceiver,
+    pub reply_senders: SimReplySenders,
+}
+
 /// Forwards requests to the simulator and routes the replies to the device handlers. Requests
 /// are dropped while no simulator is connected.
-pub async fn sim_client_task(
-    stack: embassy_net::Stack<'static>,
-    request_rx: SimRequestReceiver,
-    reply_senders: SimReplySenders,
-) {
+pub async fn sim_client_task(stack: embassy_net::Stack<'static>, endpoints: SimClientEndpoints) {
+    let SimClientEndpoints {
+        request_rx,
+        reply_senders,
+    } = endpoints;
     let mut rx_meta = [PacketMetadata::EMPTY; 4];
     let mut tx_meta = [PacketMetadata::EMPTY; 4];
     let mut rx_buf = [0; MAX_PACKET_LEN];

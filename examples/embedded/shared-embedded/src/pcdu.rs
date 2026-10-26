@@ -136,31 +136,26 @@ pub type PcduSwitchRequestChannel =
 pub type PcduSwitchRequestReceiver =
     Receiver<'static, CriticalSectionRawMutex, SwitchRequest, PCDU_SWITCH_REQUEST_QUEUE_DEPTH>;
 
+#[derive(Clone, Copy)]
+pub struct PcduEndpoints {
+    pub tc_rx: PcduTcReceiver,
+    pub tm_tx: TmFunnelSender,
+    pub switch_request_rx: PcduSwitchRequestReceiver,
+    pub event_tx: EventSender,
+    pub sim_request_tx: SimRequestSender,
+    pub sim_reply_rx: PcduSimReplyReceiver,
+}
+
 /// Runs the PCDU handler with the same timing as the hosted example. The simulator can connect
 /// or disconnect at any time, so the COM interface follows [SIM_AVAILABLE].
-pub async fn pcdu_task(
-    handler: &mut PcduHandler,
-    sim_request_tx: SimRequestSender,
-    sim_reply_rx: PcduSimReplyReceiver,
-) {
+pub async fn pcdu_task(handler: &mut PcduHandler) {
     let Some(mut sim_available) = SIM_AVAILABLE.receiver() else {
         defmt::error!("No receiver left for the simulator connection state");
         return;
     };
     loop {
         if let Some(available) = sim_available.try_changed() {
-            let using_sim = matches!(handler.com, PcduCommunication::Sim(_));
-            if available != using_sim {
-                defmt::info!("PCDU uses the simulator: {}", available);
-                let com = if available {
-                    // Replies from an earlier simulator connection are outdated.
-                    while sim_reply_rx.try_receive().is_ok() {}
-                    PcduCommunication::Sim(SimInterface::new(sim_request_tx, sim_reply_rx))
-                } else {
-                    PcduCommunication::Dummy(DummyInterface::default())
-                };
-                handler.set_com(com).await;
-            }
+            handler.set_sim_available(available).await;
         }
         handler.periodic_operation(OpCode::RegularOp).await;
         Timer::after_millis(50).await;
@@ -186,6 +181,8 @@ pub struct PcduHandler {
     tc_rx: PcduTcReceiver,
     tm_tx: TmFunnelSender,
     com: PcduCommunication,
+    sim_request_tx: SimRequestSender,
+    sim_reply_rx: PcduSimReplyReceiver,
     shared_switch_map: &'static SharedSwitchSet,
     /// ID of the switch info request in flight. Only the reply with this ID is accepted, so a late
     /// reply can not answer a newer request.
@@ -196,24 +193,20 @@ pub struct PcduHandler {
 }
 
 impl PcduHandler {
-    pub fn new(
-        tc_rx: PcduTcReceiver,
-        tm_tx: TmFunnelSender,
-        switch_request_rx: PcduSwitchRequestReceiver,
-        com: PcduCommunication,
-        shared_switch_map: &'static SharedSwitchSet,
-        event_tx: EventSender,
-    ) -> Self {
+    /// Uses the dummy interface until the simulator is available.
+    pub fn new(endpoints: PcduEndpoints, shared_switch_map: &'static SharedSwitchSet) -> Self {
         Self {
-            tc_rx,
-            switch_request_rx,
-            tm_tx,
-            com,
+            tc_rx: endpoints.tc_rx,
+            switch_request_rx: endpoints.switch_request_rx,
+            tm_tx: endpoints.tm_tx,
+            com: PcduCommunication::Dummy(DummyInterface::default()),
+            sim_request_tx: endpoints.sim_request_tx,
+            sim_reply_rx: endpoints.sim_reply_rx,
             shared_switch_map,
             switch_info_pending: None,
             next_switch_info_id: 0,
             switch_info_recipients: heapless::Vec::new(),
-            event_tx,
+            event_tx: endpoints.event_tx,
         }
     }
 
@@ -294,8 +287,18 @@ impl PcduHandler {
 
     /// The dummy and the simulator each have their own switch states, so the switch set is
     /// invalid until the new interface reported them.
-    pub async fn set_com(&mut self, com: PcduCommunication) {
-        self.com = com;
+    pub async fn set_sim_available(&mut self, available: bool) {
+        if available == matches!(self.com, PcduCommunication::Sim(_)) {
+            return;
+        }
+        defmt::info!("PCDU uses the simulator: {}", available);
+        self.com = if available {
+            // Replies from an earlier simulator connection are outdated.
+            while self.sim_reply_rx.try_receive().is_ok() {}
+            PcduCommunication::Sim(SimInterface::new(self.sim_request_tx, self.sim_reply_rx))
+        } else {
+            PcduCommunication::Dummy(DummyInterface::default())
+        };
         self.switch_info_pending = None;
         self.invalidate_switch_set().await;
     }
