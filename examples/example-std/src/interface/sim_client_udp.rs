@@ -351,7 +351,7 @@ pub mod tests {
             SimRequest::SimCtrl(SimCtrlRequest::Ping)
         );
 
-        let pcdu_req = PcduRequest::RequestSwitchInfo;
+        let pcdu_req = PcduRequest::RequestSwitchInfo { id: 0 };
         client_sim_req_tx
             .send(SimRequestWithTime::new_with_epoch_time(pcdu_req))
             .expect("send failed");
@@ -363,11 +363,14 @@ pub mod tests {
             .expect("no SIM request received");
         assert_eq!(
             sim_request.request,
-            SimRequest::Pcdu(PcduRequest::RequestSwitchInfo)
+            SimRequest::Pcdu(PcduRequest::RequestSwitchInfo { id: 0 })
         );
 
         // We inject the reply ourselves.
-        let pcdu_reply = PcduReply::SwitchInfo(SwitchMapBinary::default());
+        let pcdu_reply = PcduReply::SwitchInfo {
+            id: 0,
+            switch_map: SwitchMapBinary::default(),
+        };
         server_sim_reply_tx
             .send(SimReply::from(pcdu_reply.clone()))
             .expect("sending PCDU reply failed");

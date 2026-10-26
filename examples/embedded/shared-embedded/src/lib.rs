@@ -3,7 +3,11 @@
 #![no_std]
 extern crate alloc;
 
+pub mod config;
+pub mod event_manager;
+pub mod heap;
 pub mod leds;
 pub mod net;
+pub mod pcdu;
 pub mod sim_client;
 pub mod tmtc;

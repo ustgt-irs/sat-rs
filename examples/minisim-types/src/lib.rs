@@ -12,6 +12,7 @@ use crate::{
 
 /// Used by clients to route replies to the component handling them.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ComponentId {
     SimCtrl,
     Mgm0Lis3Mdl,
@@ -130,12 +131,16 @@ pub mod eps {
             switch: SwitchId,
             state: SwitchStateBinary,
         },
-        RequestSwitchInfo,
+        /// The reply carries the same ID, which allows matching it to its request.
+        RequestSwitchInfo { id: u16 },
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
     pub enum PcduReply {
-        SwitchInfo(SwitchMapBinary),
+        SwitchInfo {
+            id: u16,
+            switch_map: SwitchMapBinary,
+        },
     }
 }
 

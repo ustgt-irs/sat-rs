@@ -2,15 +2,18 @@
 
 use core::net::{Ipv4Addr, SocketAddrV4};
 
-use defmt::Debug2Format;
-use embassy_futures::select::{Either, select};
+use embassy_futures::select::{Either4, select4};
 use embassy_net::udp::{PacketMetadata, UdpSocket};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::channel::{Channel, Receiver, Sender};
 use embassy_sync::signal::Signal;
 use embassy_sync::watch::Watch;
-use embassy_time::{Duration, WithTimeout as _};
+use embassy_time::{Duration, Instant, WithTimeout as _};
+use minisim_types::eps::PcduReply;
 use minisim_types::udp::SIM_CTRL_PORT;
 use minisim_types::{SimCtrlReply, SimCtrlRequest, SimReply, SimRequestWithTime};
+
+use crate::config;
 
 /// Set by a sim connect request. Each new address triggers a connection attempt.
 pub static SIM_HOST: Signal<CriticalSectionRawMutex, Ipv4Addr> = Signal::new();
@@ -27,11 +30,68 @@ const MAX_PACKET_LEN: usize = 1024;
 /// dummy interface.
 pub static SIM_AVAILABLE: Watch<CriticalSectionRawMutex, bool, 4> = Watch::new();
 
-pub async fn sim_client_task(stack: embassy_net::Stack<'static>) {
+// Critical section mutexes, because RTIC tasks with different priorities can preempt each other.
+pub type SimRequestChannel =
+    Channel<CriticalSectionRawMutex, SimRequestWithTime, { config::SIM_REQUEST_QUEUE_DEPTH }>;
+pub type SimRequestSender = Sender<
+    'static,
+    CriticalSectionRawMutex,
+    SimRequestWithTime,
+    { config::SIM_REQUEST_QUEUE_DEPTH },
+>;
+pub type SimRequestReceiver = Receiver<
+    'static,
+    CriticalSectionRawMutex,
+    SimRequestWithTime,
+    { config::SIM_REQUEST_QUEUE_DEPTH },
+>;
+
+pub type PcduSimReplyChannel =
+    Channel<CriticalSectionRawMutex, PcduReply, { config::PCDU_SIM_REPLY_QUEUE_DEPTH }>;
+pub type PcduSimReplySender =
+    Sender<'static, CriticalSectionRawMutex, PcduReply, { config::PCDU_SIM_REPLY_QUEUE_DEPTH }>;
+pub type PcduSimReplyReceiver =
+    Receiver<'static, CriticalSectionRawMutex, PcduReply, { config::PCDU_SIM_REPLY_QUEUE_DEPTH }>;
+
+/// One sender for each device handler which receives simulator replies.
+#[derive(Clone, Copy)]
+pub struct SimReplySenders {
+    pub pcdu: PcduSimReplySender,
+}
+
+impl SimReplySenders {
+    /// A full reply queue drops the reply, so a slow handler can not block the other handlers.
+    fn route(&self, reply: SimReply) {
+        let component = reply.component();
+        let result = match reply {
+            SimReply::Pcdu(reply) => self.pcdu.try_send(reply).map_err(|_| ()),
+            _ => {
+                defmt::warn!("No recipient for simulator reply from {}", &component);
+                return;
+            }
+        };
+        if result.is_err() {
+            defmt::warn!(
+                "Reply queue for {} full, dropping simulator reply",
+                &component
+            );
+        }
+    }
+}
+
+/// Forwards requests to the simulator and routes the replies to the device handlers. Requests
+/// are dropped while no simulator is connected.
+pub async fn sim_client_task(
+    stack: embassy_net::Stack<'static>,
+    request_rx: SimRequestReceiver,
+    reply_senders: SimReplySenders,
+) {
     let mut rx_meta = [PacketMetadata::EMPTY; 4];
     let mut tx_meta = [PacketMetadata::EMPTY; 4];
     let mut rx_buf = [0; MAX_PACKET_LEN];
     let mut tx_buf = [0; MAX_PACKET_LEN];
+    let mut request_buf = [0; MAX_PACKET_LEN];
+    let mut reply_buf = [0; MAX_PACKET_LEN];
 
     let sim_available = SIM_AVAILABLE.sender();
     sim_available.send(false);
@@ -48,29 +108,72 @@ pub async fn sim_client_task(stack: embassy_net::Stack<'static>) {
     loop {
         stack.wait_link_up().await;
         stack.wait_config_up().await;
+        let mut check_pending = true;
+        let mut connected = false;
         loop {
-            if let Some(addr) = sim_addr {
-                let connected = check_connection(&udp, addr).await;
+            if check_pending && let Some(addr) = sim_addr {
+                connected = check_connection(&udp, addr, &reply_senders).await;
                 if connected {
-                    defmt::info!("Connected to simulator at {}", Debug2Format(&addr));
+                    defmt::info!("Connected to simulator at {}", &addr);
                 } else {
                     defmt::warn!(
                         "Simulator at {} not reachable, using dummy interfaces",
-                        Debug2Format(&addr)
+                        &addr
                     );
                 }
                 sim_available.send(connected);
             }
-            match select(SIM_HOST.wait(), stack.wait_link_down()).await {
-                Either::First(ip_addr) => {
+            check_pending = false;
+            match select4(
+                SIM_HOST.wait(),
+                stack.wait_link_down(),
+                request_rx.receive(),
+                udp.recv_from(&mut reply_buf),
+            )
+            .await
+            {
+                Either4::First(ip_addr) => {
                     sim_addr = Some(SocketAddrV4::new(ip_addr, SIM_CTRL_PORT));
+                    check_pending = true;
                 }
-                Either::Second(()) => {
+                Either4::Second(()) => {
                     sim_available.send(false);
                     break;
                 }
+                Either4::Third(request) => {
+                    if connected && let Some(addr) = sim_addr {
+                        send_request(&udp, addr, &request, &mut request_buf).await;
+                    }
+                }
+                Either4::Fourth(Ok((len, _))) => {
+                    match postcard::from_bytes::<SimReply>(&reply_buf[..len]) {
+                        Ok(reply) => reply_senders.route(reply),
+                        Err(e) => {
+                            defmt::warn!("Invalid simulator reply: {}", &e)
+                        }
+                    }
+                }
+                Either4::Fourth(Err(e)) => {
+                    defmt::warn!("Receiving simulator reply failed: {}", e)
+                }
             }
         }
+    }
+}
+
+async fn send_request(
+    udp: &UdpSocket<'_>,
+    sim_addr: SocketAddrV4,
+    request: &SimRequestWithTime,
+    buf: &mut [u8],
+) {
+    match postcard::to_slice(request, buf) {
+        Ok(raw) => {
+            if let Err(e) = udp.send_to(raw, sim_addr).await {
+                defmt::warn!("Failed to send simulator request: {}", e);
+            }
+        }
+        Err(e) => defmt::error!("Failed to serialize simulator request: {}", &e),
     }
 }
 
@@ -86,15 +189,19 @@ fn sim_addr_from_env() -> Option<SocketAddrV4> {
 }
 
 /// Uses several attempts, because the first packet can get lost while the MAC address of the
-/// simulator host is resolved.
-async fn check_connection(udp: &UdpSocket<'_>, sim_addr: SocketAddrV4) -> bool {
+/// simulator host is resolved. Device replies which arrive in the meantime are still routed.
+async fn check_connection(
+    udp: &UdpSocket<'_>,
+    sim_addr: SocketAddrV4,
+    reply_senders: &SimReplySenders,
+) -> bool {
     let mut tx_buf = [0; MAX_PACKET_LEN];
     let mut rx_buf = [0; MAX_PACKET_LEN];
     let request = SimRequestWithTime::new_with_epoch_time(SimCtrlRequest::Ping);
     let ping = match postcard::to_slice(&request, &mut tx_buf) {
         Ok(ping) => ping,
         Err(e) => {
-            defmt::error!("Failed to serialize simulator ping: {}", Debug2Format(&e));
+            defmt::error!("Failed to serialize simulator ping: {}", &e);
             return false;
         }
     };
@@ -103,13 +210,13 @@ async fn check_connection(udp: &UdpSocket<'_>, sim_addr: SocketAddrV4) -> bool {
             defmt::warn!("Failed to send simulator ping: {}", e);
             continue;
         }
-        if let Ok(Ok((len, _))) = udp.recv_from(&mut rx_buf).with_timeout(PING_TIMEOUT).await
-            && matches!(
-                postcard::from_bytes::<SimReply>(&rx_buf[..len]),
-                Ok(SimReply::SimCtrl(SimCtrlReply::Pong))
-            )
-        {
-            return true;
+        let deadline = Instant::now() + PING_TIMEOUT;
+        while let Ok(Ok((len, _))) = udp.recv_from(&mut rx_buf).with_deadline(deadline).await {
+            match postcard::from_bytes::<SimReply>(&rx_buf[..len]) {
+                Ok(SimReply::SimCtrl(SimCtrlReply::Pong)) => return true,
+                Ok(reply) => reply_senders.route(reply),
+                Err(e) => defmt::warn!("Invalid simulator reply: {}", &e),
+            }
         }
     }
     false

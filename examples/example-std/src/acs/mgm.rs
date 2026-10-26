@@ -578,7 +578,8 @@ mod tests {
     };
 
     use crate::device_fdir::RECOVERY_THRESHOLD;
-    use crate::eps::pcdu::{SharedSwitchSet, SwitchMap, SwitchSet};
+    use crate::eps::pcdu::SharedSwitchSet;
+    use types::pcdu::{SwitchMap, SwitchSet};
 
     use super::*;
 
@@ -634,7 +635,7 @@ mod tests {
             let (switcher_tx, switch_rx) = mpsc::sync_channel(10);
             let shared_mgm_set = Arc::default();
             let mut switch_map = SwitchMap::new();
-            switch_map.insert(SwitchId::Mgm0, SwitchState::Off);
+            switch_map.insert(SwitchId::Mgm0, SwitchState::Off).unwrap();
             let switch_map = SwitchSet::new(switch_map);
             let shared_switch_set = SharedSwitchSet::new(Mutex::new(switch_map));
             let health_table = HealthTableMapSync::default();

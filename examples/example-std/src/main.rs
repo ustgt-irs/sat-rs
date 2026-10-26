@@ -11,7 +11,7 @@ use std::{
 
 use eps::{
     PowerSwitchHelper,
-    pcdu::{PcduHandler, SerialInterfaceDummy, SerialInterfaceToSim, SerialSimInterfaceWrapper},
+    pcdu::{DummyInterface, PcduCommunication, PcduHandler, SimInterface},
 };
 use example_std::{
     TmtcQueues,
@@ -34,12 +34,11 @@ use satrs::{
 };
 use tmtc::sender::TmTcSender;
 use tmtc::{tc_source::TcSourceTask, tm_sink::TmSink};
-use types::{ComponentId, DeviceMode};
+use types::{ComponentId, pcdu::SwitchSet};
 
 use crate::{
     acs::{ctrl, mgm, mgm_assembly, mgt, subsystem},
     controller::Controller,
-    eps::pcdu::SwitchSet,
     event_manager::EventManager,
     interface::udp::UdpTmHandlerWithChannel,
     tmtc::tc_source::CcsdsDistributor,
@@ -101,8 +100,6 @@ fn main() {
     let (mgm_1_mode_request_tx, mgm_1_mode_request_rx) = mpsc::sync_channel(5);
     let (mgm_0_mode_report_tx, mgm_0_mode_report_rx) = mpsc::sync_channel(5);
     let (mgm_1_mode_report_tx, mgm_1_mode_report_rx) = mpsc::sync_channel(5);
-
-    let (pcdu_handler_mode_tx, _pcdu_handler_mode_rx) = mpsc::sync_channel(5);
 
     let (event_ctrl_tx, event_ctrl_rx) = mpsc::sync_channel(10);
     let (mgm_event_tx, mgm_event_rx) = mpsc::sync_channel(10);
@@ -300,29 +297,20 @@ fn main() {
         },
     );
 
-    let pcdu_serial_interface = if let Some(sim_client) = opt_sim_client.as_mut() {
+    let pcdu_com = if let Some(sim_client) = opt_sim_client.as_mut() {
         sim_client.add_reply_recipient(minisim_types::ComponentId::Pcdu, pcdu_sim_reply_tx);
-        SerialSimInterfaceWrapper::Sim(SerialInterfaceToSim::new(
-            sim_request_tx.clone(),
-            pcdu_sim_reply_rx,
-        ))
+        PcduCommunication::Sim(SimInterface::new(sim_request_tx.clone(), pcdu_sim_reply_rx))
     } else {
-        SerialSimInterfaceWrapper::Dummy(SerialInterfaceDummy::default())
+        PcduCommunication::Dummy(DummyInterface::default())
     };
     let mut pcdu_handler = PcduHandler::new(
         pcdu_handler_tc_rx,
         tm_sink_tx.clone(),
         switch_request_rx,
-        pcdu_serial_interface,
+        pcdu_com,
         shared_switch_set,
-        DeviceMode::Normal,
         pcdu_event_tx,
     );
-
-    // The PCDU is a critical component which should be in normal mode immediately.
-    pcdu_handler_mode_tx
-        .send(types::pcdu::request::Request::Mode(DeviceMode::Normal))
-        .expect("sending initial mode request failed");
 
     info!("Starting TMTC and UDP task");
     let jh_udp_tmtc = thread::Builder::new()

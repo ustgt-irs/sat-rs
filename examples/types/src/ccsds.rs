@@ -68,6 +68,7 @@ impl CcsdsTcPacketOwned {
 }
 
 #[derive(Debug, thiserror::Error)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum CcsdsCreationError {
     #[error("CCSDS packet creation error: {0}")]
     CcsdsPacketCreation(#[from] CcsdsPacketCreationError),

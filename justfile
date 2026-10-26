@@ -1,4 +1,4 @@
-all: check build embedded test check-fmt clippy docs
+all: check build embedded test check-fmt clippy embedded-clippy docs
 
 check:
   cargo check
@@ -27,11 +27,18 @@ clean:
 
 check-fmt:
   cargo fmt --all -- --check
+  cargo fmt --all --manifest-path examples/embedded/Cargo.toml -- --check
 
 fmt:
   cargo fmt --all
+  cargo fmt --all --manifest-path examples/embedded/Cargo.toml
 
 clippy:
+  cargo clippy -- -D warnings
+
+# Runs in the embedded directory, so the embedded target from its cargo config is used.
+[working-directory:"examples/embedded"]
+embedded-clippy:
   cargo clippy -- -D warnings
 
 docs-satrs:
