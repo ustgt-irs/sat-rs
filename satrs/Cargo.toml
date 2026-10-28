@@ -2,7 +2,7 @@
 name = "satrs"
 version = "0.3.0-alpha.3"
 edition = "2024"
-rust-version = "1.85.0"
+rust-version = "1.88.0"
 description = "A library collection to build software for remote systems"
 repository = "https://github.com/ustgt-irs/sat-rs"
 license = "Apache-2.0"
@@ -11,7 +11,7 @@ keywords = ["no-std", "space", "aerospace"]
 categories = ["aerospace", "aerospace::space-protocols", "no-std", "hardware-support", "embedded"]
 
 [dependencies]
-spacepackets = { version = "0.18", default-features = false }
+spacepackets = { version = "0.19", default-features = false }
 
 delegate = "0.13"
 paste = "1"

@@ -13,9 +13,7 @@ pub mod crossbeam_test {
     use spacepackets::SpHeader;
     use spacepackets::ecss::tc::{PusTcCreator, PusTcReader, PusTcSecondaryHeader};
     use spacepackets::ecss::tm::PusTmReader;
-    use spacepackets::ecss::{
-        CreatorConfig, EcssEnumU8, EcssEnumU16, MessageTypeId, WritablePusPacket,
-    };
+    use spacepackets::ecss::{CreatorConfig, EcssEnumU8, EcssEnumU16, MessageTypeId};
     use std::sync::RwLock;
     use std::thread;
     use std::time::Duration;
@@ -67,7 +65,7 @@ pub mod crossbeam_test {
             req_id_0 = RequestId::new(&pus_tc_0);
             let addr = tc_guard
                 .free_element(pus_tc_0.len_written(), |buf| {
-                    pus_tc_0.write_to_bytes(buf).unwrap();
+                    pus_tc_0.write_to_slice(buf).unwrap();
                 })
                 .unwrap();
             tx_tc_0.send(addr).unwrap();
@@ -77,7 +75,7 @@ pub mod crossbeam_test {
             req_id_1 = RequestId::new(&pus_tc_1);
             let addr = tc_guard
                 .free_element(pus_tc_0.len_written(), |buf| {
-                    pus_tc_1.write_to_bytes(buf).unwrap();
+                    pus_tc_1.write_to_slice(buf).unwrap();
                 })
                 .unwrap();
             tx_tc_1.send(addr).unwrap();

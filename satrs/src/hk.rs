@@ -1,18 +1,18 @@
 //! #  HK generation helpers
 //!
 //! Each helper contains the minimal state to support the periodic generation of housekeeping
-//! packets. Call [SingleSetHkHelperStd::needs_generation](crate::hk::SingleSetHkHelperStd::needs_generation) periodically, for example once per task
-//! cycle. When it returns `true`, generate the HK set and send it, the helper has already reset
-//! its clock for the next period.
+//! packets. Call [SingleSetHkHelperStd::needs_generation] periodically, for example once per
+//! task cycle. When it returns `true`, generate the HK set and send it, the helper has already
+//! reset its clock for the next period.
 //!
 //! Pick a helper based on what clock is available:
 //!
-//! - [SingleSetHkHelperStd](crate::hk::SingleSetHkHelperStd): `std::time::Instant`, behind the `std` feature.
+//! - [SingleSetHkHelperStd]: `std::time::Instant`, behind the `std` feature.
 #![cfg_attr(
     feature = "embassy-time",
-    doc = "- [SingleSetHkHelperEmbassy](crate::hk::SingleSetHkHelperEmbassy): `embassy_time::Instant`, behind the `embassy-time` feature."
+    doc = "- [SingleSetHkHelperEmbassy]: `embassy_time::Instant`, behind the `embassy-time` feature."
 )]
-//! - [SingleSetHkHelperCountdown](crate::hk::SingleSetHkHelperCountdown): any clock implementing [Countdown](crate::time::Countdown), for example a
+//! - [SingleSetHkHelperCountdown]: any clock implementing [Countdown], for example a
 //!   `fugit`-based monotonic.
 //!
 //! If your software object has multiple HK sets, you can simply put the helpers inside a dynamic

@@ -40,7 +40,7 @@ use satrs::{
 };
 use spacepackets::{
     CcsdsPacket, PacketId, SpHeader,
-    ecss::{CreatorConfig, MessageTypeId, WritablePusPacket, tc::PusTcCreator},
+    ecss::{CreatorConfig, MessageTypeId, tc::PusTcCreator},
 };
 use std::{collections::VecDeque, sync::Arc, vec::Vec};
 

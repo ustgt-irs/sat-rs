@@ -271,9 +271,9 @@ pub fn generate_insert_telecommand_app_data(
     buf[current_len..current_len + 2].copy_from_slice(&n.to_be_bytes());
     current_len += 2;
     current_len += release_time
-        .write_to_bytes(&mut buf[current_len..current_len + release_time.len_written()])?;
+        .write_to_slice(&mut buf[current_len..current_len + release_time.len_written()])?;
     current_len +=
-        request.write_to_bytes(&mut buf[current_len..current_len + request.len_written()])?;
+        request.write_to_slice(&mut buf[current_len..current_len + request.len_written()])?;
     Ok(current_len)
 }
 
@@ -804,8 +804,8 @@ mod tests {
     use arbitrary_int::traits::Integer;
     use arbitrary_int::{u11, u14};
     use spacepackets::ecss::tc::{PusTcCreator, PusTcReader, PusTcSecondaryHeader};
-    use spacepackets::ecss::{CreatorConfig, MessageTypeId, WritablePusPacket};
-    use spacepackets::time::{TimeWriter, UnixTime, cds};
+    use spacepackets::ecss::{CreatorConfig, MessageTypeId};
+    use spacepackets::time::{UnixTime, cds};
     use spacepackets::{PacketId, PacketSequenceControl, PacketType, SequenceFlags, SpHeader};
     use std::time::Duration;
     use std::vec::Vec;
@@ -816,9 +816,9 @@ mod tests {
         let cds_time =
             cds::CdsTime::from_unix_time_with_u16_days(&timestamp, cds::SubmillisPrecision::Absent)
                 .unwrap();
-        let len_time_stamp = cds_time.write_to_bytes(buf).unwrap();
+        let len_time_stamp = cds_time.write_to_slice(buf).unwrap();
         let len_packet = base_ping_tc_simple_ctor(u14::new(0), &[])
-            .write_to_bytes(&mut buf[len_time_stamp..])
+            .write_to_slice(&mut buf[len_time_stamp..])
             .unwrap();
         (
             SpHeader::new_for_unseg_tc(u11::new(0x02), u14::new(0x34), len_packet as u16),
@@ -860,7 +860,7 @@ mod tests {
         let cds_time =
             cds::CdsTime::from_unix_time_with_u16_days(&timestamp, cds::SubmillisPrecision::Absent)
                 .unwrap();
-        let len_time_stamp = cds_time.write_to_bytes(buf).unwrap();
+        let len_time_stamp = cds_time.write_to_slice(buf).unwrap();
         let sph = SpHeader::new_for_unseg_tc(u11::new(0x02), u14::new(0x34), 0);
         // app data should not matter, double wrapped time-tagged commands should be rejected right
         // away
@@ -871,7 +871,7 @@ mod tests {
             CreatorConfig::default(),
         );
         let packet_len = inner_time_tagged_tc
-            .write_to_bytes(&mut buf[len_time_stamp..])
+            .write_to_slice(&mut buf[len_time_stamp..])
             .expect("writing inner time tagged tc failed");
         PusTcCreator::new_simple(
             sph,
@@ -908,7 +908,7 @@ mod tests {
         app_data: &'static [u8],
     ) -> TcInfo {
         let ping_tc = base_ping_tc_simple_ctor(seq_count, app_data);
-        let ping_size = ping_tc.write_to_bytes(buf).expect("writing ping TC failed");
+        let ping_size = ping_tc.write_to_slice(buf).expect("writing ping TC failed");
         let first_addr = pool.add(&buf[0..ping_size]).unwrap();
         TcInfo::new(first_addr, RequestId::from_tc(&ping_tc))
     }

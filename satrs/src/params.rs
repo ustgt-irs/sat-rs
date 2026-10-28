@@ -488,7 +488,7 @@ macro_rules! writable_as_be_bytes_ecss_enum_impl {
             }
 
             fn write_to_be_bytes(&self, buf: &mut [u8]) -> Result<usize, ByteConversionError> {
-                <Self as UnsignedEnum>::write_to_be_bytes(self, buf).map(|_| self.written_len())
+                <Self as UnsignedEnum>::write_to_slice_be(self, buf).map(|_| self.written_len())
             }
         }
     };

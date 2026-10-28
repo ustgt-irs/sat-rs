@@ -117,7 +117,7 @@ impl EventReportCreator {
             time_stamp,
         );
         let mut current_idx = 0;
-        event_id.write_to_be_bytes(&mut src_data_buf[0..event_id.size()])?;
+        event_id.write_to_slice_be(&mut src_data_buf[0..event_id.size()])?;
         current_idx += event_id.size();
         if let Some(aux_data) = params {
             src_data_buf[current_idx..current_idx + aux_data.len()].copy_from_slice(aux_data);

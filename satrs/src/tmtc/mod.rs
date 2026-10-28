@@ -226,7 +226,6 @@ pub mod std_mod {
 
     #[cfg(feature = "crossbeam")]
     use crossbeam_channel as cb;
-    use spacepackets::ecss::WritablePusPacket;
     use thiserror::Error;
 
     use crate::legacy::pus::{EcssTmSender, EcssTmtcError, PacketSenderPusTc};
@@ -271,7 +270,7 @@ pub mod std_mod {
             let mut pg = self.0.write().map_err(|_| PoolError::LockError)?;
             let mut result = Ok(0);
             let addr = pg.free_element(pus_tm.len_written(), |buf| {
-                result = pus_tm.write_to_bytes(buf);
+                result = pus_tm.write_to_slice(buf);
             })?;
             result?;
             Ok(addr)

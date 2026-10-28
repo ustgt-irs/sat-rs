@@ -493,18 +493,18 @@ impl SubsystemCommandingHelper {
         opt_mode_reponse: Option<ModeResponse>,
         mode_request_handler: F,
     ) -> Result<SubsystemHelperResult, ModeTreeHelperError> {
-        if let Some(reply) = opt_mode_reponse {
-            if self.handle_children_mode_changed(reply)? {
-                if self.seq_exec_helper.state() == SequenceExecutionHelperState::Idle {
-                    self.transition_to_target_keeping();
-                    return Ok(SubsystemHelperResult::ModeCommanding(
-                        ModeCommandingResult::Done,
-                    ));
-                }
+        if let Some(reply) = opt_mode_reponse
+            && self.handle_children_mode_changed(reply)?
+        {
+            if self.seq_exec_helper.state() == SequenceExecutionHelperState::Idle {
+                self.transition_to_target_keeping();
                 return Ok(SubsystemHelperResult::ModeCommanding(
-                    ModeCommandingResult::StepDone,
+                    ModeCommandingResult::Done,
                 ));
             }
+            return Ok(SubsystemHelperResult::ModeCommanding(
+                ModeCommandingResult::StepDone,
+            ));
         }
         match self.state {
             ModeTreeHelperState::Idle => Ok(SubsystemHelperResult::Idle),

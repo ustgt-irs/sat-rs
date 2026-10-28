@@ -657,7 +657,6 @@ pub mod std_mod {
     use alloc::vec::Vec;
     use core::time::Duration;
     use spacepackets::ByteConversionError;
-    use spacepackets::ecss::WritablePusPacket;
     use spacepackets::ecss::tc::PusTcReader;
     use spacepackets::time::StdTimestampError;
     use std::string::String;
@@ -1294,9 +1293,9 @@ pub mod tests {
     use alloc::vec::Vec;
     use arbitrary_int::{u11, u14};
     use spacepackets::CcsdsPacket;
+    use spacepackets::ecss::PusPacket;
     use spacepackets::ecss::tc::{PusTcCreator, PusTcReader};
     use spacepackets::ecss::tm::{GenericPusTmSecondaryHeader, PusTmCreator, PusTmReader};
-    use spacepackets::ecss::{PusPacket, WritablePusPacket};
     use test_util::{TEST_APID, TEST_COMPONENT_ID_0};
 
     use super::verification::{RequestId, VerificationReporter};
@@ -1428,7 +1427,7 @@ pub mod tests {
             tc: &PusTcCreator,
         ) {
             let mut mut_buf = self.pus_buf.borrow_mut();
-            let tc_size = tc.write_to_bytes(mut_buf.as_mut_slice()).unwrap();
+            let tc_size = tc.write_to_slice(mut_buf.as_mut_slice()).unwrap();
             let mut tc_pool = self.tc_pool.write().unwrap();
             let addr = tc_pool.add(&mut_buf[..tc_size]).unwrap();
             drop(tc_pool);

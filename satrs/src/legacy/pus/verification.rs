@@ -754,7 +754,7 @@ impl VerificationReportCreator {
         idx += RequestId::SIZE_AS_BYTES;
         if let Some(step) = step {
             // Size check was done beforehand
-            step.write_to_be_bytes(&mut src_data_buf[idx..idx + step.size()])
+            step.write_to_slice_be(&mut src_data_buf[idx..idx + step.size()])
                 .unwrap();
         }
         let sp_header = SpHeader::new_for_unseg_tm(self.apid(), seq_count, 0);
@@ -791,13 +791,13 @@ impl VerificationReportCreator {
         idx += RequestId::SIZE_AS_BYTES;
         if let Some(step) = step {
             // Size check done beforehand
-            step.write_to_be_bytes(&mut src_data_buf[idx..idx + step.size()])
+            step.write_to_slice_be(&mut src_data_buf[idx..idx + step.size()])
                 .unwrap();
             idx += step.size();
         }
         params
             .failure_code
-            .write_to_be_bytes(&mut src_data_buf[idx..idx + params.failure_code.size()])?;
+            .write_to_slice_be(&mut src_data_buf[idx..idx + params.failure_code.size()])?;
         idx += params.failure_code.size();
         src_data_buf[idx..idx + params.failure_data.len()].copy_from_slice(params.failure_data);
         let sp_header = SpHeader::new_for_unseg_tm(self.apid(), seq_count, 0);
@@ -1732,9 +1732,8 @@ pub mod tests {
     use spacepackets::ecss::tc::{PusTcCreator, PusTcReader, PusTcSecondaryHeader};
     use spacepackets::ecss::{
         CreatorConfig, EcssEnumU8, EcssEnumU16, EcssEnumU32, EcssEnumeration, MessageTypeId,
-        PusError, PusPacket, WritablePusPacket,
+        PusError, PusPacket,
     };
-    use spacepackets::util::UnsignedEnum;
     use spacepackets::{ByteConversionError, SpHeader};
     use std::cell::RefCell;
     use std::collections::VecDeque;
@@ -2201,7 +2200,7 @@ pub mod tests {
         let fail_code = EcssEnumU8::new(10);
         let fail_data = EcssEnumU32::new(12);
         let mut fail_data_raw = [0; 4];
-        fail_data.write_to_be_bytes(&mut fail_data_raw).unwrap();
+        fail_data.write_to_slice_be(&mut fail_data_raw).unwrap();
         let fail_params = FailParams::new(&EMPTY_STAMP, &fail_code, fail_data_raw.as_slice());
         let init_token = testbench.start_verification();
         testbench

@@ -14,7 +14,7 @@ satrs = { path = "../../satrs" }
 example-std = { path = "../example-std" }
 minisim-types = { path = "../minisim-types" }
 types = { path = "../types" }
-spacepackets = { version = "0.18", default-features = false }
+spacepackets = { version = "0.19", default-features = false }
 bitbybit = "2"
 arbitrary-int = "2"
 ctrlc = { version = "3.5" }

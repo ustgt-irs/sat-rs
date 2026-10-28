@@ -1355,9 +1355,9 @@ dependencies = [
 
 [[package]]
 name = "spacepackets"
-version = "0.18.0"
+version = "0.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "93b9cf1b8372119e7c79383f1578f3e845b2ca2e6d07073e96f475ba354f44e3"
+checksum = "966e20a60269338533d50e1e5825669c8816c42d5ba2d55fdd8617ea66d135ed"
 dependencies = [
  "arbitrary-int",
  "bitbybit",

@@ -116,10 +116,7 @@ mod tests {
     use satrs::spacepackets::ecss::{CreatorConfig, MessageTypeId};
     use satrs::{
         ComponentId,
-        spacepackets::{
-            SpHeader,
-            ecss::{WritablePusPacket, tc::PusTcCreator},
-        },
+        spacepackets::{SpHeader, ecss::tc::PusTcCreator},
     };
     use types::Apid;
 

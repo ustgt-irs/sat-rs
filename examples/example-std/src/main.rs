@@ -458,6 +458,6 @@ pub fn update_time(time_provider: &mut CdsTime, timestamp: &mut [u8]) {
         .update_from_now()
         .expect("Could not get current time");
     time_provider
-        .write_to_bytes(timestamp)
+        .write_to_slice(timestamp)
         .expect("Writing timestamp failed");
 }
