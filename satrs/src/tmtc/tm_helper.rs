@@ -26,7 +26,7 @@ impl PusTmWithCdsShortHelper {
         seq_count: u14,
     ) -> PusTmCreator<'_, 'data> {
         let time_stamp = CdsTime::now_with_u16_days().unwrap();
-        time_stamp.write_to_bytes(&mut self.cds_short_buf).unwrap();
+        time_stamp.write_to_slice(&mut self.cds_short_buf).unwrap();
         self.create_pus_tm_common(service, subservice, source_data, seq_count)
     }
 
@@ -38,7 +38,7 @@ impl PusTmWithCdsShortHelper {
         stamper: &CdsTime,
         seq_count: u14,
     ) -> PusTmCreator<'_, 'data> {
-        stamper.write_to_bytes(&mut self.cds_short_buf).unwrap();
+        stamper.write_to_slice(&mut self.cds_short_buf).unwrap();
         self.create_pus_tm_common(service, subservice, source_data, seq_count)
     }
 

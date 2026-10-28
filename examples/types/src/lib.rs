@@ -103,7 +103,7 @@ impl TmHeader {
     ) -> Self {
         // Can not fail, CDS short always requires 7 bytes.
         let mut stamp_buf: [u8; MIN_CDS_FIELD_LEN] = [0; MIN_CDS_FIELD_LEN];
-        cds_timestamp.write_to_bytes(&mut stamp_buf).unwrap();
+        cds_timestamp.write_to_slice(&mut stamp_buf).unwrap();
         Self {
             sender_id,
             target_id,

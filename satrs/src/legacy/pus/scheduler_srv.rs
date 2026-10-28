@@ -268,8 +268,7 @@ mod tests {
     use spacepackets::SpHeader;
     use spacepackets::ecss::scheduling::MessageSubtypeId;
     use spacepackets::ecss::tc::PusTcSecondaryHeader;
-    use spacepackets::ecss::{CreatorConfig, MessageTypeId, WritablePusPacket};
-    use spacepackets::time::TimeWriter;
+    use spacepackets::ecss::{CreatorConfig, MessageTypeId};
     use spacepackets::{
         ecss::{tc::PusTcCreator, tm::PusTmReader},
         time::cds,
@@ -444,7 +443,7 @@ mod tests {
         let req_id_ping_tc = scheduler::RequestId::from_tc(&ping_tc);
         let stamper = cds::CdsTime::now_with_u16_days().expect("time provider failed");
         let mut sched_app_data: [u8; 64] = [0; 64];
-        let mut written_len = stamper.write_to_bytes(&mut sched_app_data).unwrap();
+        let mut written_len = stamper.write_to_slice(&mut sched_app_data).unwrap();
         let ping_raw = ping_tc.to_vec().expect("generating raw tc failed");
         sched_app_data[written_len..written_len + ping_raw.len()].copy_from_slice(&ping_raw);
         written_len += ping_raw.len();

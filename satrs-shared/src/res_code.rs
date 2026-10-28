@@ -61,7 +61,7 @@ impl UnsignedEnum for ResultU16 {
         core::mem::size_of::<u16>()
     }
 
-    fn write_to_be_bytes(&self, buf: &mut [u8]) -> Result<usize, ByteConversionError> {
+    fn write_to_slice_be(&self, buf: &mut [u8]) -> Result<usize, ByteConversionError> {
         if buf.len() < 2 {
             return Err(ByteConversionError::ToSliceTooSmall {
                 found: buf.len(),
@@ -102,7 +102,7 @@ mod tests {
         assert_eq!(result_code.pfc(), 16);
         assert_eq!(result_code.size(), 2);
         let mut buf: [u8; 2] = [0; 2];
-        let written = result_code.write_to_be_bytes(&mut buf).unwrap();
+        let written = result_code.write_to_slice_be(&mut buf).unwrap();
         assert_eq!(written, 2);
         assert_eq!(buf[0], 1);
         assert_eq!(buf[1], 1);

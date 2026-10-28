@@ -196,15 +196,15 @@ pub mod alloc_mod {
         ) -> Result<(), super::ScheduleError> {
             if !self.limits.has_no_limits() {
                 let fill_count = self.current_fill_count();
-                if let Some(max_bytes) = self.limits.bytes {
-                    if fill_count.bytes + packet_size > max_bytes {
-                        return Err(super::ScheduleError::ByteLimitReached);
-                    }
+                if let Some(max_bytes) = self.limits.bytes
+                    && fill_count.bytes + packet_size > max_bytes
+                {
+                    return Err(super::ScheduleError::ByteLimitReached);
                 }
-                if let Some(max_packets) = self.limits.packets {
-                    if fill_count.packets + 1 > max_packets {
-                        return Err(super::ScheduleError::PacketLimitReached);
-                    }
+                if let Some(max_packets) = self.limits.packets
+                    && fill_count.packets + 1 > max_packets
+                {
+                    return Err(super::ScheduleError::PacketLimitReached);
                 }
             }
             if release_time < self.current_time + self.time_margin {

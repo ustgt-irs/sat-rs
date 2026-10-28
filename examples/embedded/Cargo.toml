@@ -23,7 +23,7 @@ panic-probe = { version = "1", features = ["print-defmt"] }
 # once v0.7.1 is out.
 embedded-alloc = { git = "https://github.com/rust-embedded/embedded-alloc", rev = "3e687e5855cdc98e8c984574a75d44732433b9db" }
 static_cell = "2"
-spacepackets = { version = "0.18", default-features = false, features = ["defmt"] }
+spacepackets = { version = "0.19", default-features = false, features = ["defmt"] }
 postcard = { version = "1", features = ["use-defmt"] }
 serde = { version = "1", default-features = false }
 rtic = { version = "2", features = ["thumbv7-backend"] }

@@ -244,11 +244,11 @@ pub mod alloc_mod {
             target_channel_id: ComponentId,
             message: Msg,
         ) -> Result<(), GenericSendError> {
-            if let Some((current_id, sender)) = &self.id_and_sender {
-                if *current_id == target_channel_id {
-                    sender.send(GenericMessage::new(requestor_info, message))?;
-                    return Ok(());
-                }
+            if let Some((current_id, sender)) = &self.id_and_sender
+                && *current_id == target_channel_id
+            {
+                sender.send(GenericMessage::new(requestor_info, message))?;
+                return Ok(());
             }
             Err(GenericSendError::TargetDoesNotExist(target_channel_id))
         }

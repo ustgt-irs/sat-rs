@@ -94,14 +94,14 @@ impl<
             {
                 error_callback(&PartialPusHandlingError::TmSend(e));
             }
-            if let Some(start_token) = opt_started_token {
-                if let Err(e) = self.service_helper.verif_reporter().completion_success(
+            if let Some(start_token) = opt_started_token
+                && let Err(e) = self.service_helper.verif_reporter().completion_success(
                     &self.service_helper.common.tm_sender,
                     start_token,
                     time_stamp,
-                ) {
-                    error_callback(&PartialPusHandlingError::Verification(e));
-                }
+                )
+            {
+                error_callback(&PartialPusHandlingError::Verification(e));
             }
         } else {
             return Ok(DirectPusPacketHandlerResult::CustomSubservice(
@@ -163,7 +163,7 @@ mod tests {
     use spacepackets::ecss::tc::{PusTcCreator, PusTcSecondaryHeader};
     use spacepackets::ecss::tm::PusTmReader;
     use spacepackets::ecss::{CreatorConfig, MessageTypeId, PusPacket};
-    use spacepackets::time::{TimeWriter, cds};
+    use spacepackets::time::cds;
 
     use super::PusService17TestHandler;
 

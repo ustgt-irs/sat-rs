@@ -294,10 +294,10 @@ impl<'a, MemProvider: PoolProvider> PoolGuard<'a, MemProvider> {
 
 impl<MemProvider: PoolProvider + ?Sized> Drop for PoolGuard<'_, MemProvider> {
     fn drop(&mut self) {
-        if !self.no_deletion {
-            if let Err(e) = self.pool.delete(self.addr) {
-                self.deletion_failed_error = Some(e);
-            }
+        if !self.no_deletion
+            && let Err(e) = self.pool.delete(self.addr)
+        {
+            self.deletion_failed_error = Some(e);
         }
     }
 }

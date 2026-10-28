@@ -176,7 +176,7 @@ mod tests {
             CreatorConfig::default(),
         );
         let len = pus_tc
-            .write_to_bytes(&mut buf)
+            .write_to_slice(&mut buf)
             .expect("Error writing PUS TC packet");
         let client = UdpSocket::bind("127.0.0.1:7778").expect("Connecting to UDP server failed");
         client

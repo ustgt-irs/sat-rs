@@ -147,7 +147,7 @@ mod tests {
         );
         let mut buffer: [u8; 32] = [0; 32];
         let packet_len = ping_tc
-            .write_to_bytes(&mut buffer)
+            .write_to_slice(&mut buffer)
             .expect("writing packet failed");
         let tc_cacher = TcCacher::default();
         let parse_result = parse_buffer_for_ccsds_space_packets(
@@ -179,10 +179,10 @@ mod tests {
             PusTcCreator::new_simple(sph, MessageTypeId::new(8, 0), &[], CreatorConfig::default());
         let mut buffer: [u8; 32] = [0; 32];
         let packet_len_ping = ping_tc
-            .write_to_bytes(&mut buffer)
+            .write_to_slice(&mut buffer)
             .expect("writing packet failed");
         let packet_len_action = action_tc
-            .write_to_bytes(&mut buffer[packet_len_ping..])
+            .write_to_slice(&mut buffer[packet_len_ping..])
             .expect("writing packet failed");
         let tc_cacher = TcCacher::default();
         let parse_result = parse_buffer_for_ccsds_space_packets(
@@ -221,10 +221,10 @@ mod tests {
             PusTcCreator::new_simple(sph, MessageTypeId::new(8, 0), &[], CreatorConfig::default());
         let mut buffer: [u8; 32] = [0; 32];
         let packet_len_ping = ping_tc
-            .write_to_bytes(&mut buffer)
+            .write_to_slice(&mut buffer)
             .expect("writing packet failed");
         let packet_len_action = action_tc
-            .write_to_bytes(&mut buffer[packet_len_ping..])
+            .write_to_slice(&mut buffer[packet_len_ping..])
             .expect("writing packet failed");
         let tc_cacher = TcCacher::default();
         let verificator = SimpleVerificator::new_with_second_id();
@@ -260,10 +260,10 @@ mod tests {
         );
         let mut buffer: [u8; 32] = [0; 32];
         let packet_len_ping = ping_tc
-            .write_to_bytes(&mut buffer)
+            .write_to_slice(&mut buffer)
             .expect("writing packet failed");
         let packet_len_action = action_tc
-            .write_to_bytes(&mut buffer[packet_len_ping..])
+            .write_to_slice(&mut buffer[packet_len_ping..])
             .expect("writing packet failed");
         let tc_cacher = TcCacher::default();
         let verificator = SimpleVerificator::new_with_second_id();
@@ -295,7 +295,7 @@ mod tests {
         );
         let mut buffer: [u8; 32] = [0; 32];
         let packet_len_ping = ping_tc
-            .write_to_bytes(&mut buffer)
+            .write_to_slice(&mut buffer)
             .expect("writing packet failed");
         let tc_cacher = TcCacher::default();
 
@@ -322,7 +322,7 @@ mod tests {
         );
         let mut buf: [u8; 7] = [0; 7];
         ccsds_header_only
-            .write_to_be_bytes(&mut buf)
+            .write_to_slice(&mut buf)
             .expect("writing failed");
         let verificator = SimpleVerificator::default();
         let tc_cacher = TcCacher::default();

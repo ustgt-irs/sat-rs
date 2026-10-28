@@ -241,7 +241,7 @@ mod tests {
     use hashbrown::HashSet;
     use spacepackets::{
         CcsdsPacket, PacketId, SpHeader,
-        ecss::{CreatorConfig, MessageTypeId, WritablePusPacket, tc::PusTcCreator},
+        ecss::{CreatorConfig, MessageTypeId, tc::PusTcCreator},
     };
 
     use crate::{

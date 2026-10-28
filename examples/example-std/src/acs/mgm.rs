@@ -908,7 +908,7 @@ mod tests {
         if let types::acs::mgm::response::Response::Hk(mgm::response::HkResponse::MgmData(data)) =
             response
         {
-            assert_eq!(data.valid, false);
+            assert!(!data.valid);
             assert!(data.x < 0.001);
             assert!(data.y < 0.001);
             assert!(data.z < 0.001);
@@ -969,7 +969,7 @@ mod tests {
             response
         {
             // Set is now valid.
-            assert_eq!(data.valid, true);
+            assert!(data.valid);
             assert!(data.x < 0.001);
             assert!(data.y < 0.001);
             assert!(data.z < 0.001);

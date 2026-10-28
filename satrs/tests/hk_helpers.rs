@@ -93,7 +93,7 @@ impl TestMgmHkWithGroupValidity {
         buf[curr_idx] = self.valid as u8;
         curr_idx += 1;
         self.last_valid_stamp
-            .write_to_bytes(&mut buf[curr_idx..curr_idx + self.last_valid_stamp.len_as_bytes()])
+            .write_to_slice(&mut buf[curr_idx..curr_idx + self.last_valid_stamp.len_as_bytes()])
             .unwrap();
         curr_idx += self.last_valid_stamp.len_as_bytes();
         buf[curr_idx] = 0;

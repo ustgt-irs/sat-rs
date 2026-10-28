@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - Added `fdir::RecoveryFdir` (`std`), which escalates component faults to a power cycle
   recovery first and to a faulty component if it has to be recovered too often.
 - Added `fdir::RecoveryEvent` for recovery related events.
+- Bumped `spacepackets` to v0.19
+- Bumped MSRV to 1.88, required by `spacepackets` v0.19
 
 # [v0.3.0-alpha.3] 2025-11-06
 

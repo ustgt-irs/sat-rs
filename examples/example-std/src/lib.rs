@@ -40,7 +40,7 @@ impl TimestampHelper {
             .update_from_now()
             .expect("Updating timestamp failed");
         self.stamper
-            .write_to_bytes(&mut self.time_stamp)
+            .write_to_slice(&mut self.time_stamp)
             .expect("Writing timestamp failed");
     }
 }

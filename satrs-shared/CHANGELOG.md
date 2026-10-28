@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 
 # [unreleased]
 
+`spacepackets` v0.19.0
+
 # [v0.2.4] 2025-11-06
 
 `spacepackets` v0.17.0
