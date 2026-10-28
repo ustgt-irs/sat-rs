@@ -1218,19 +1218,10 @@ dependencies = [
  "num_enum",
  "paste",
  "postcard",
- "satrs-shared",
  "serde",
  "spacepackets",
  "static_cell",
  "thiserror",
-]
-
-[[package]]
-name = "satrs-shared"
-version = "0.2.4"
-dependencies = [
- "serde",
- "spacepackets",
 ]
 
 [[package]]
