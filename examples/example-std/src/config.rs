@@ -1,11 +1,6 @@
 use arbitrary_int::u11;
 use lazy_static::lazy_static;
-use satrs::{
-    legacy::res_code::ResultU16,
-    spacepackets::{PacketId, PacketType},
-};
-use satrs_mib::res_code::ResultU16Info;
-use satrs_mib::resultcode;
+use satrs::spacepackets::{PacketId, PacketType};
 use std::{collections::HashSet, net::Ipv4Addr};
 use strum::IntoEnumIterator as _;
 
@@ -26,13 +21,6 @@ pub enum RequestTargetId {
 
 pub const AOCS_APID: u16 = 1;
 
-#[derive(Debug)]
-pub enum GroupId {
-    Tmtc = 0,
-    Hk = 1,
-    Mode = 2,
-}
-
 pub const OBSW_SERVER_ADDR: Ipv4Addr = Ipv4Addr::UNSPECIFIED;
 pub const SERVER_PORT: u16 = 7301;
 
@@ -51,70 +39,6 @@ lazy_static! {
         }
         set
     };
-}
-
-pub mod tmtc_err {
-
-    use super::*;
-
-    #[resultcode]
-    pub const INVALID_PUS_SERVICE: ResultU16 = ResultU16::new(GroupId::Tmtc as u8, 0);
-    #[resultcode]
-    pub const INVALID_PUS_SUBSERVICE: ResultU16 = ResultU16::new(GroupId::Tmtc as u8, 1);
-    #[resultcode]
-    pub const PUS_SERVICE_NOT_IMPLEMENTED: ResultU16 = ResultU16::new(GroupId::Tmtc as u8, 2);
-    #[resultcode]
-    pub const PUS_SUBSERVICE_NOT_IMPLEMENTED: ResultU16 = ResultU16::new(GroupId::Tmtc as u8, 3);
-    #[resultcode]
-    pub const UNKNOWN_TARGET_ID: ResultU16 = ResultU16::new(GroupId::Tmtc as u8, 4);
-    #[resultcode]
-    pub const ROUTING_ERROR: ResultU16 = ResultU16::new(GroupId::Tmtc as u8, 5);
-    #[resultcode(info = "Request timeout for targeted PUS request. P1: Request ID. P2: Target ID")]
-    pub const REQUEST_TIMEOUT: ResultU16 = ResultU16::new(GroupId::Tmtc as u8, 6);
-
-    #[resultcode(
-        info = "Not enough data inside the TC application data field. Optionally includes: \
-          8 bytes of failure data containing 2 failure parameters, \
-          P1 (u32 big endian): Expected data length, P2: Found data length"
-    )]
-    pub const NOT_ENOUGH_APP_DATA: ResultU16 = ResultU16::new(GroupId::Tmtc as u8, 2);
-
-    pub const TMTC_RESULTS: &[ResultU16Info] = &[
-        INVALID_PUS_SERVICE_EXT,
-        INVALID_PUS_SUBSERVICE_EXT,
-        PUS_SERVICE_NOT_IMPLEMENTED_EXT,
-        UNKNOWN_TARGET_ID_EXT,
-        ROUTING_ERROR_EXT,
-        NOT_ENOUGH_APP_DATA_EXT,
-    ];
-}
-
-pub mod hk_err {
-
-    use super::*;
-
-    #[resultcode]
-    pub const TARGET_ID_MISSING: ResultU16 = ResultU16::new(GroupId::Hk as u8, 0);
-    #[resultcode]
-    pub const UNIQUE_ID_MISSING: ResultU16 = ResultU16::new(GroupId::Hk as u8, 1);
-    #[resultcode]
-    pub const UNKNOWN_TARGET_ID: ResultU16 = ResultU16::new(GroupId::Hk as u8, 2);
-    #[resultcode]
-    pub const COLLECTION_INTERVAL_MISSING: ResultU16 = ResultU16::new(GroupId::Hk as u8, 3);
-
-    pub const HK_ERR_RESULTS: &[ResultU16Info] = &[
-        TARGET_ID_MISSING_EXT,
-        UNKNOWN_TARGET_ID_EXT,
-        UNKNOWN_TARGET_ID_EXT,
-        COLLECTION_INTERVAL_MISSING_EXT,
-    ];
-}
-
-pub mod mode_err {
-    use super::*;
-
-    #[resultcode]
-    pub const WRONG_MODE: ResultU16 = ResultU16::new(GroupId::Mode as u8, 0);
 }
 
 pub mod components {

@@ -4,7 +4,7 @@ use crate::{
     request::{GenericMessage, MessageMetadata, RequestId},
 };
 
-use satrs_shared::res_code::ResultU16;
+// use satrs_shared::res_code::ResultU16;
 
 #[cfg(feature = "std")]
 pub use std_mod::*;

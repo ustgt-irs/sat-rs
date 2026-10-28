@@ -11,7 +11,7 @@ keywords = ["no-std", "space", "aerospace"]
 categories = ["aerospace", "aerospace::space-protocols", "no-std", "hardware-support", "embedded"]
 
 [dependencies]
-satrs-shared = { version = "0.2", path = "../satrs-shared" }
+# satrs-shared = { version = "0.2", path = "../satrs-shared" }
 spacepackets = { version = "0.18", default-features = false }
 
 delegate = "0.13"
@@ -69,7 +69,7 @@ alloc = [
     "dyn-clone",
     "downcast-rs"
 ]
-serde = ["dep:serde", "spacepackets/serde", "satrs-shared/serde"]
+serde = ["dep:serde", "spacepackets/serde"]
 crossbeam = ["crossbeam-channel"]
 defmt = ["dep:defmt", "spacepackets/defmt", "embassy-time?/defmt"]
 embassy-time = ["dep:embassy-time"]
