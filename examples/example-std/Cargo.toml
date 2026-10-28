@@ -28,7 +28,6 @@ serde = { version = "1", features = ["derive"] }
 satrs = { path = "../../satrs", features = ["test_util"] }
 types = { path = "../types" }
 minisim-types = { path = "../minisim-types" }
-satrs-mib = { path = "../../satrs-mib" }
 
 [features]
 # default = ["heap_tmtc"]

@@ -26,7 +26,6 @@ use spacepackets::ecss::tc::{PusTcCreator, PusTcReader};
 use spacepackets::ecss::tm::PusTmCreator;
 use spacepackets::{ByteConversionError, SpHeader};
 
-pub mod action;
 pub mod mode;
 pub mod scheduler;
 #[cfg(feature = "std")]
@@ -1294,7 +1293,6 @@ pub mod tests {
     use alloc::collections::VecDeque;
     use alloc::vec::Vec;
     use arbitrary_int::{u11, u14};
-    use satrs_shared::res_code::ResultU16;
     use spacepackets::CcsdsPacket;
     use spacepackets::ecss::tc::{PusTcCreator, PusTcReader};
     use spacepackets::ecss::tm::{GenericPusTmSecondaryHeader, PusTmCreator, PusTmReader};
@@ -1595,8 +1593,6 @@ pub mod tests {
             assert_eq!(req_id, expected_request_id);
         }
     }
-
-    pub const APP_DATA_TOO_SHORT: ResultU16 = ResultU16::new(1, 1);
 
     #[derive(Default)]
     pub struct TestConverter<const SERVICE: u8> {
