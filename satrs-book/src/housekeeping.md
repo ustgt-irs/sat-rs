@@ -1,6 +1,6 @@
 # Housekeeping Data
 
-If you have not read [the TMTC modelling chapter](./tmtc-modelling.md) yet, it is recommended to
+If you have not read the [Packet Format and TMTC Modelling](./tmtc-modelling.md) chapter yet, it is recommended to
 do that first.
 
 Remote systems like satellites and rovers oftentimes generate data autonomously and periodically.

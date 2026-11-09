@@ -1,6 +1,6 @@
 <div id="communication-chapter"/>
 
-# Communication with sat-rs based software
+# Communication with Space Systems
 
 Communication is a vital topic for remote systems which are usually not (directly)
 connected to the internet and only have 1-2 communication links during nominal operation. However,
@@ -8,9 +8,9 @@ most of these systems have internet access during the development cycle. There a
 provided by CCSDS which can be useful to determine how to communicate with the satellite
 and the primary On-Board Software.
 
-Most communication with space systems is usually packet based. For example, the CCSDS space
-packet standard only specifies a 6 byte header with at least 1 byte payload. The `sat-rs` library
-provides some support for the [CCSDS space packet protocol](https://ccsds.org/Pubs/133x0b2e2.pdf).
+Most communication with space systems is packet based. The `sat-rs` library provides some support
+for the [CCSDS space packet protocol](https://ccsds.org/Pubs/133x0b2e2.pdf), which the
+[Packet Format and TMTC Modelling](./tmtc-modelling.md) chapter describes in detail.
 
 1. [UDP TMTC Server](https://docs.rs/satrs/latest/satrs/hal/std/udp_server/index.html).
    UDP is already packet based which makes it an excellent fit for exchanging space packets.
@@ -35,61 +35,68 @@ Another important task might be to store all arriving telemetry persistently. Th
 important for space systems which do not have permanent contact like low-earth-orbit (LEO)
 satellites.
 
-The diagram below shows one concrete example of what this could look like.
+The diagram below shows an example of how the packet flow could look:
+
+<figure>
 
 ```mermaid
 flowchart LR
     Dev[Device Handlers] --> Sink[TM Sink]
     Sub[Subsystem Handlers] --> Sink
-    Sink --> Ground[Ground Link]
+    Sink --> Radio[Radio Handler] --> Station[Ground Station]
+    Sink --> Udp[UDP Server] --> UdpClient[UDP Client]
+    Sink --> Tcp[TCP Server] --> TcpClient[TCP Client]
     Sink --> Store[Persistent Storage]
-    Sink --> Udp[UDP Server]
-    Sink --> Tcp[TCP Server]
+    classDef creator fill:#b7e1a1,stroke:#4a8f2a,color:#000
+    classDef hub fill:#a9c8f0,stroke:#3a6fb0,color:#000
+    classDef transport fill:#d9d9d9,stroke:#7a7a7a,color:#000
+    classDef recipient fill:#f5c99b,stroke:#c0782a,color:#000
+    class Dev,Sub creator
+    class Sink hub
+    class Radio,Udp,Tcp transport
+    class Station,UdpClient,TcpClient,Store recipient
 ```
+
+<figcaption>
+Figure 1: Example TM packet flow. Arrows point in the direction the telemetry packets travel.
+Green nodes create packets, grey nodes only transport them and orange nodes receive them.
+The blue node is the central TM sink.
+</figcaption>
+</figure>
 
 The most important task of a TC source is to deliver the telecommands to the correct recipients.
 For component oriented software using message passing, this usually includes demultiplexing
 to determine where a command needs to be sent.
 
-The diagram below shows one concrete example of what this could look like.
+The diagram below shows one concrete example of how the packet flow could look.
+
+<figure>
 
 ```mermaid
 flowchart LR
-    Udp[UDP Server] --> Source[TC Source]
-    Tcp[TCP Server] --> Source
-    Radio[Radio Handler] --> Source
+    Station[Ground Station] --> Radio[Radio Handler] --> Source[TC Source]
+    UdpClient[UDP Client] --> Udp[UDP Server] --> Source
+    TcpClient[TCP Client] --> Tcp[TCP Server] --> Source
     Source --> Dev[Device Handlers]
     Source --> Sub[Subsystem Handlers]
     Source --> File[File Service Handler]
+    classDef creator fill:#b7e1a1,stroke:#4a8f2a,color:#000
+    classDef hub fill:#a9c8f0,stroke:#3a6fb0,color:#000
+    classDef transport fill:#d9d9d9,stroke:#7a7a7a,color:#000
+    classDef recipient fill:#f5c99b,stroke:#c0782a,color:#000
+    class Station,UdpClient,TcpClient creator
+    class Source hub
+    class Radio,Udp,Tcp transport
+    class Dev,Sub,File recipient
 ```
+
+<figcaption>
+Figure 2: Example TC packet flow. Arrows point in the direction the telecommands travel.
+Green nodes create telecommands, grey nodes only transport them and orange nodes receive them.
+The blue node is the central TC source.
+</figcaption>
+</figure>
 
 Using a generic concept of a TC source and a TM sink as part of the software design simplifies
 the flexibility of the TMTC infrastructure: Newly added TM generators and TC receivers only have to
 forward their generated or received packets to those handler objects.
-
-# Packet format
-
-We talked about some basic support for the CCSDS space packet protocol. This is a really simple
-protocol which just specifies a header that every exchanged TMTC packet has:
-
-![Space Packet Header](./images/space-packet-standard.png)
-
-This is a protocol which already provides us with some useful fields:
-
-- ID field provided by the Application Process Identifier (APID). This can also be useful for packet
-  multiplexing
-- Basic sequence counter which can be used to determine missed packets
-
-However, what does the actual payload that we want to send to or from the satellite actually look
-like? We recommend a payload format which is created with the excellent [`serde`](https://serde.rs/)
-library. The [TMTC modelling](./tmtc-modelling.md) chapter provides more information.
-
-# Low-level protocols and the bridge to the communication subsystem
-
-Many satellite systems usually use the lower levels of the OSI layer in addition to the application
-layer. This oftentimes requires special hardware like dedicated FPGAs to handle forward error
-correction fast enough. `sat-rs`
-might provide components to handle standards like the Unified Space Data Link Protocol (USLP) in
-software but most of the time the handling of communication is performed through custom
-software and hardware. Still, connecting this custom software and hardware to `sat-rs` can mostly
-be done by using the concept of TC sources and TM sinks mentioned previously.

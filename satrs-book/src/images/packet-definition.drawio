@@ -1,0 +1,31 @@
+<mxfile host="Electron" agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/27.0.9 Chrome/134.0.6998.205 Electron/35.4.0 Safari/537.36" version="27.0.9">
+  <diagram name="Page-1" id="7AtIPmmKkJj3nkbjG49R">
+    <mxGraphModel dx="1360" dy="843" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="kbFu5xCgorl0r84Owzoj-1" value="&lt;font style=&quot;font-size: 14px;&quot; face=&quot;Lucida Console&quot;&gt;Space Packet&lt;br&gt;Header&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="180" y="260" width="120" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="kbFu5xCgorl0r84Owzoj-2" value="&lt;font style=&quot;font-size: 16px;&quot; face=&quot;Lucida Console&quot;&gt;Serde serialized payload&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="300" y="260" width="200" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="kbFu5xCgorl0r84Owzoj-3" value="&lt;font face=&quot;Lucida Console&quot;&gt;&lt;span style=&quot;font-size: 14px;&quot;&gt;CRC16&lt;/span&gt;&lt;/font&gt;" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="500" y="260" width="70" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="kbFu5xCgorl0r84Owzoj-4" value="&lt;h2&gt;&lt;font face=&quot;Lucida Console&quot;&gt;Binary Packet Definition&lt;/font&gt;&lt;/h2&gt;" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" vertex="1" parent="1">
+          <mxGeometry x="285" y="210" width="200" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="kbFu5xCgorl0r84Owzoj-5" value="&lt;font style=&quot;font-size: 14px;&quot;&gt;6 bytes&lt;/font&gt;" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontFamily=Lucida Console;" vertex="1" parent="1">
+          <mxGeometry x="190" y="340" width="100" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="kbFu5xCgorl0r84Owzoj-6" value="2&lt;span style=&quot;background-color: transparent; color: light-dark(rgb(0, 0, 0), rgb(255, 255, 255));&quot;&gt;&amp;nbsp;bytes&lt;/span&gt;" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontFamily=Lucida Console;fontSize=14;" vertex="1" parent="1">
+          <mxGeometry x="485" y="340" width="100" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="kbFu5xCgorl0r84Owzoj-7" value="Standard limit is ~65kB, usually smaller limit" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontFamily=Lucida Console;" vertex="1" parent="1">
+          <mxGeometry x="325" y="340" width="150" height="50" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
