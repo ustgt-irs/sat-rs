@@ -25,7 +25,7 @@ layer is where the target environment determines which concrete crates and mecha
 
 The book has dedicated chapters for some of the topics:
 
-- [TMTC handling and Serialization](./tmtc-modelling.md)
+- [Packet Format and TMTC Modelling](./tmtc-modelling.md)
 - [Events](./events.md)
 - [Modes](./modes-and-health.md)
 

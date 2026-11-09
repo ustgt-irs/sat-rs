@@ -5,7 +5,7 @@
 # Basic concepts and components
 
 - [Communication with Space Systems](./communication.md)
-- [TMTC modelling](./tmtc-modelling.md)
+- [Packet Format and TMTC Modelling](./tmtc-modelling.md)
 - [Working with Constrained Systems](./constrained-systems.md)
 - [Actions](./actions.md)
 - [Modes and Health](./modes-and-health.md)

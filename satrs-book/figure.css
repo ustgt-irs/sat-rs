@@ -1,0 +1,9 @@
+figure {
+    margin: 1.5em 0;
+}
+
+figcaption {
+    text-align: center;
+    font-style: italic;
+    font-size: 0.9em;
+}

@@ -5,6 +5,7 @@ src = "src"
 title = "The sat-rs book"
 
 [output.html]
+additional-css = ["figure.css"]
 additional-js = ["mermaid.min.js", "mermaid-init.js"]
 
 [output.linkcheck]
