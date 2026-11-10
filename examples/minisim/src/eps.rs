@@ -15,7 +15,7 @@ pub struct PcduModel {
     switcher_map: SwitchMapBinary,
     pub mgm_0_switch: Output<SwitchStateBinary>,
     pub mgm_1_switch: Output<SwitchStateBinary>,
-    pub mgt_switch: Output<SwitchStateBinary>,
+    pub mtq_switch: Output<SwitchStateBinary>,
     pub reply: Output<SimReply>,
 }
 
@@ -26,7 +26,7 @@ impl PcduModel {
             switcher_map: SwitchMapBinaryWrapper::default().0,
             mgm_0_switch: Output::new(),
             mgm_1_switch: Output::new(),
-            mgt_switch: Output::new(),
+            mtq_switch: Output::new(),
             reply: Output::new(),
         }
     }
@@ -67,8 +67,8 @@ impl PcduModel {
             SwitchId::Mgm1 => {
                 self.mgm_1_switch.send(switch_and_target_state.1).await;
             }
-            SwitchId::Mgt => {
-                self.mgt_switch.send(switch_and_target_state.1).await;
+            SwitchId::Mtq => {
+                self.mtq_switch.send(switch_and_target_state.1).await;
             }
         }
     }
@@ -157,13 +157,13 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn test_pcdu_switching_mgt_on() {
-        test_pcdu_switching_single_switch(SwitchId::Mgt, SwitchStateBinary::On);
+    fn test_pcdu_switching_mtq_on() {
+        test_pcdu_switching_single_switch(SwitchId::Mtq, SwitchStateBinary::On);
     }
 
     #[test]
-    fn test_pcdu_switching_mgt_off() {
-        test_pcdu_switching_single_switch(SwitchId::Mgt, SwitchStateBinary::On);
-        test_pcdu_switching_single_switch(SwitchId::Mgt, SwitchStateBinary::Off);
+    fn test_pcdu_switching_mtq_off() {
+        test_pcdu_switching_single_switch(SwitchId::Mtq, SwitchStateBinary::On);
+        test_pcdu_switching_single_switch(SwitchId::Mtq, SwitchStateBinary::Off);
     }
 }

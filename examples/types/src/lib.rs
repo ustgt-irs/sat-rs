@@ -37,7 +37,7 @@ pub enum ComponentId {
     AcsController,
     AcsMgm0,
     AcsMgm1,
-    AcsMgt,
+    AcsMtq,
 
     EpsSubsystem,
     EpsPcdu,

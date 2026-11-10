@@ -1,6 +1,6 @@
 use minisim_types::{
     SimReply,
-    acs::{mgm, mgt},
+    acs::{mgm, mtq},
 };
 use nexosim::{
     model::{Context, Model, schedulable},
@@ -15,22 +15,22 @@ const REPLY_DELAY: Duration = Duration::from_millis(15);
 
 /// Simple magnetorquer simulation model.
 #[derive(Serialize, Deserialize)]
-pub struct MgtModel {
+pub struct MtqModel {
     switch_state: SwitchStateBinary,
     torquing: bool,
-    torque_dipole: mgt::Dipole,
+    torque_dipole: mtq::Dipole,
     pub gen_magnetic_field: Output<mgm::SensorValuesMicroTesla>,
     pub clear_magnetic_field: Output<()>,
     pub reply: Output<SimReply>,
 }
 
 #[Model]
-impl MgtModel {
+impl MtqModel {
     pub fn new() -> Self {
         Self {
             switch_state: SwitchStateBinary::Off,
             torquing: false,
-            torque_dipole: mgt::Dipole::default(),
+            torque_dipole: mtq::Dipole::default(),
             gen_magnetic_field: Output::new(),
             clear_magnetic_field: Output::new(),
             reply: Output::new(),
@@ -39,7 +39,7 @@ impl MgtModel {
 
     pub async fn apply_torque(
         &mut self,
-        duration_and_dipole: (Duration, mgt::Dipole),
+        duration_and_dipole: (Duration, mtq::Dipole),
         cx: &Context<Self>,
     ) {
         if self.switch_state != SwitchStateBinary::On {
@@ -54,12 +54,12 @@ impl MgtModel {
             log::warn!("torque clearing can only be set for a future time.");
         }
         self.generate_magnetic_field(()).await;
-        self.schedule_reply(mgt::Reply::Ack, cx);
+        self.schedule_reply(mtq::Reply::Ack, cx);
     }
 
     #[nexosim(schedulable)]
     async fn clear_torque(&mut self) {
-        self.torque_dipole = mgt::Dipole::default();
+        self.torque_dipole = mtq::Dipole::default();
         self.torquing = false;
         self.clear_magnetic_field.send(()).await;
     }
@@ -77,27 +77,27 @@ impl MgtModel {
             return;
         }
         // The HK is sampled when the command is processed, not when the reply is sent.
-        let hk = mgt::HkSet {
+        let hk = mtq::HkSet {
             dipole: self.torque_dipole,
             torquing: self.torquing,
         };
-        self.schedule_reply(mgt::Reply::Hk(hk), cx);
+        self.schedule_reply(mtq::Reply::Hk(hk), cx);
     }
 
-    fn schedule_reply(&self, reply: mgt::Reply, cx: &Context<Self>) {
+    fn schedule_reply(&self, reply: mtq::Reply, cx: &Context<Self>) {
         cx.schedule_event(REPLY_DELAY, schedulable!(Self::send_reply), reply)
-            .expect("scheduling MGT reply failed")
+            .expect("scheduling MTQ reply failed")
     }
 
     #[nexosim(schedulable)]
-    async fn send_reply(&mut self, reply: mgt::Reply) {
+    async fn send_reply(&mut self, reply: mtq::Reply) {
         self.reply.send(SimReply::from(reply)).await;
     }
 
-    fn calc_magnetic_field(&self, _: mgt::Dipole) -> mgm::SensorValuesMicroTesla {
+    fn calc_magnetic_field(&self, _: mtq::Dipole) -> mgm::SensorValuesMicroTesla {
         // Simplified model: Just returns some fixed magnetic field for now.
         // Later, we could make this more fancy by incorporating the commanded dipole.
-        mgm::MGT_GEN_MAGNETIC_FIELD
+        mgm::MTQ_GEN_MAGNETIC_FIELD
     }
 
     /// A torquing magnetorquer generates a magnetic field. This function can be used to apply
@@ -118,73 +118,73 @@ mod tests {
 
     use minisim_types::{
         SimReply, SimRequest, SimRequestWithTime,
-        acs::{mgm, mgt},
+        acs::{mgm, mtq},
         eps::PcduRequest,
     };
     use types::pcdu::{SwitchId, SwitchStateBinary};
 
     use crate::{eps::tests::switch_device_on, test_helpers::SimTestbench};
 
-    fn decode_reply(sim_reply: SimReply) -> mgt::Reply {
-        let SimReply::Mgt(frame) = sim_reply else {
+    fn decode_reply(sim_reply: SimReply) -> mtq::Reply {
+        let SimReply::Mtq(frame) = sim_reply else {
             panic!("unexpected reply {sim_reply:?}");
         };
-        mgt::Reply::from_frame(&frame).expect("invalid MGT reply frame")
+        mtq::Reply::from_frame(&frame).expect("invalid MTQ reply frame")
     }
 
-    fn request_hk(sim_testbench: &mut SimTestbench) -> Option<mgt::HkSet> {
-        let sim_reply = sim_testbench.request_reply(mgt::Request::RequestHk)?;
-        let mgt::Reply::Hk(hk) = decode_reply(sim_reply) else {
-            panic!("unexpected MGT reply");
+    fn request_hk(sim_testbench: &mut SimTestbench) -> Option<mtq::HkSet> {
+        let sim_reply = sim_testbench.request_reply(mtq::Request::RequestHk)?;
+        let mtq::Reply::Hk(hk) = decode_reply(sim_reply) else {
+            panic!("unexpected MTQ reply");
         };
         Some(hk)
     }
 
     #[test]
-    fn test_basic_mgt_request_is_off() {
+    fn test_basic_mtq_request_is_off() {
         let mut sim_testbench = SimTestbench::new();
         assert!(request_hk(&mut sim_testbench).is_none());
     }
 
     #[test]
-    fn test_basic_mgt_request_is_on() {
+    fn test_basic_mtq_request_is_on() {
         let mut sim_testbench = SimTestbench::new();
-        switch_device_on(&mut sim_testbench, SwitchId::Mgt);
+        switch_device_on(&mut sim_testbench, SwitchId::Mtq);
         assert_eq!(
             request_hk(&mut sim_testbench),
-            Some(mgt::HkSet {
-                dipole: mgt::Dipole::default(),
+            Some(mtq::HkSet {
+                dipole: mtq::Dipole::default(),
                 torquing: false,
             })
         );
     }
 
     #[test]
-    fn test_basic_mgt_request_is_on_and_torquing() {
+    fn test_basic_mtq_request_is_on_and_torquing() {
         let mut sim_testbench = SimTestbench::new();
-        switch_device_on(&mut sim_testbench, SwitchId::Mgt);
-        let commanded_dipole = mgt::Dipole {
+        switch_device_on(&mut sim_testbench, SwitchId::Mtq);
+        let commanded_dipole = mtq::Dipole {
             x: -200,
             y: 200,
             z: 1000,
         };
-        let request = SimRequestWithTime::new_with_epoch_time(mgt::Request::ApplyTorque {
+        let request = SimRequestWithTime::new_with_epoch_time(mtq::Request::ApplyTorque {
             duration: Duration::from_millis(100),
             dipole: commanded_dipole,
         });
         sim_testbench
             .send_request(request)
-            .expect("sending MGT request failed");
+            .expect("sending MTQ request failed");
         sim_testbench.handle_sim_requests_time_agnostic();
         sim_testbench.step_until(Duration::from_millis(20)).unwrap();
         let ack = sim_testbench
             .try_receive_next_reply()
             .expect("no torque command ack");
-        assert_eq!(decode_reply(ack), mgt::Reply::Ack);
+        assert_eq!(decode_reply(ack), mtq::Reply::Ack);
 
         assert_eq!(
             request_hk(&mut sim_testbench),
-            Some(mgt::HkSet {
+            Some(mtq::HkSet {
                 dipole: commanded_dipole,
                 torquing: true,
             })
@@ -194,8 +194,8 @@ mod tests {
             .unwrap();
         assert_eq!(
             request_hk(&mut sim_testbench),
-            Some(mgt::HkSet {
-                dipole: mgt::Dipole::default(),
+            Some(mtq::HkSet {
+                dipole: mtq::Dipole::default(),
                 torquing: false,
             })
         );
@@ -204,9 +204,9 @@ mod tests {
     #[test]
     fn test_torque_command_not_acked_when_off() {
         let mut sim_testbench = SimTestbench::new();
-        let reply = sim_testbench.request_reply(mgt::Request::ApplyTorque {
+        let reply = sim_testbench.request_reply(mtq::Request::ApplyTorque {
             duration: Duration::from_millis(100),
-            dipole: mgt::Dipole { x: 1, y: 2, z: 3 },
+            dipole: mtq::Dipole { x: 1, y: 2, z: 3 },
         });
         assert!(reply.is_none());
     }
@@ -214,10 +214,10 @@ mod tests {
     #[test]
     fn test_invalid_frame_is_dropped() {
         let mut sim_testbench = SimTestbench::new();
-        switch_device_on(&mut sim_testbench, SwitchId::Mgt);
+        switch_device_on(&mut sim_testbench, SwitchId::Mtq);
         assert!(
             sim_testbench
-                .request_reply(SimRequest::Mgt(vec![0x01, 0x00]))
+                .request_reply(SimRequest::Mtq(vec![0x01, 0x00]))
                 .is_none()
         );
     }
@@ -239,7 +239,7 @@ mod tests {
                 request: mgm::Request::RequestSensorData,
             },
         );
-        // Skips pending MGT replies, for example torque command acks.
+        // Skips pending MTQ replies, for example torque command acks.
         loop {
             let sim_reply = sim_testbench
                 .try_receive_next_reply()
@@ -252,15 +252,15 @@ mod tests {
 
     fn start_torquing(sim_testbench: &mut SimTestbench, duration: Duration) {
         switch_device_on(sim_testbench, SwitchId::Mgm0);
-        switch_device_on(sim_testbench, SwitchId::Mgt);
+        switch_device_on(sim_testbench, SwitchId::Mtq);
         process_without_step(
             sim_testbench,
-            mgt::Request::ApplyTorque {
+            mtq::Request::ApplyTorque {
                 duration,
-                dipole: mgt::Dipole { x: 1, y: 2, z: 3 },
+                dipole: mtq::Dipole { x: 1, y: 2, z: 3 },
             },
         );
-        assert_eq!(read_mgm_0_field(sim_testbench), mgm::MGT_GEN_MAGNETIC_FIELD);
+        assert_eq!(read_mgm_0_field(sim_testbench), mgm::MTQ_GEN_MAGNETIC_FIELD);
     }
 
     #[test]
@@ -272,24 +272,24 @@ mod tests {
             .unwrap();
         assert_ne!(
             read_mgm_0_field(&mut sim_testbench),
-            mgm::MGT_GEN_MAGNETIC_FIELD
+            mgm::MTQ_GEN_MAGNETIC_FIELD
         );
     }
 
     #[test]
-    fn test_mgm_field_cleared_by_switching_mgt_off() {
+    fn test_mgm_field_cleared_by_switching_mtq_off() {
         let mut sim_testbench = SimTestbench::new();
         start_torquing(&mut sim_testbench, Duration::from_millis(100));
         process_without_step(
             &mut sim_testbench,
             PcduRequest::SwitchDevice {
-                switch: SwitchId::Mgt,
+                switch: SwitchId::Mtq,
                 state: SwitchStateBinary::Off,
             },
         );
         assert_ne!(
             read_mgm_0_field(&mut sim_testbench),
-            mgm::MGT_GEN_MAGNETIC_FIELD
+            mgm::MTQ_GEN_MAGNETIC_FIELD
         );
     }
 }

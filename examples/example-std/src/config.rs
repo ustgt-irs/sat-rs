@@ -96,7 +96,7 @@ pub mod tasks {
     pub const FREQ_MS_CONTROLLER: u64 = 200;
     pub const SIM_CLIENT_IDLE_DELAY_MS: u64 = 5;
 
-    /// Slot offsets from the start of each AOCS cycle. The MGMs run first. The MGT runs right
+    /// Slot offsets from the start of each AOCS cycle. The MGMs run first. The MTQ runs right
     /// after the controller, so its torque and field drop can end before the MGMs measure again.
     pub mod aocs {
         use std::time::Duration;
