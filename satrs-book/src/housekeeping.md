@@ -24,7 +24,7 @@ First, we are going to list some assumptions and requirements about Housekeeping
 Generally, it makes sense to model the data with Rust data structures for various reasons. For
 example, the sensor data received from a 3-axis magnetometer might be modelled like this:
 
-```rust
+```rust,ignore
 #[derive(Debug, Copy, Clone, serde::Serialize, serde::Deserialize)]
 pub struct MgmData {
     pub x: i16,
@@ -38,7 +38,7 @@ which are useful for generating the housekeeping data sent to ground.
 
 We can model the housekeeping requests for a handler with a single data set like this:
 
-```rust
+```rust,ignore
 #[derive(Debug, Copy, Clone, serde::Serialize, serde::Deserialize)]
 pub enum HkRequest {
     OneShot,
@@ -51,7 +51,7 @@ pub enum HkRequest {
 
 which might then be a part of a top level request type, e.g.
 
-```rust
+```rust,ignore
 #[derive(Debug, Copy, Clone, serde::Serialize, serde::Deserialize)]
 pub enum Request {
     Ping,
@@ -61,7 +61,7 @@ pub enum Request {
 
 A corresponding `Response` type might just include a HK data variant:
 
-```rust
+```rust,ignore
 #[derive(Debug, Copy, Clone, serde::Serialize, serde::Deserialize)]
 pub enum Response {
     Ok,
@@ -71,7 +71,7 @@ pub enum Response {
 
 If the software object managed multiple data sets, you could model it like this:
 
-```rust
+```rust,ignore
 /// Example set ID.
 #[derive(Debug, Copy, Clone, serde::Serialize, serde::Deserialize)]
 pub enum SetId {

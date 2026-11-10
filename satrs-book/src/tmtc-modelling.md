@@ -72,7 +72,7 @@ This object should have the following capabilities:
 
 You can now model a request to your `Camera` object using the following data structure
 
-```rust
+```rust,ignore
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub enum CameraRequest {
     Ping,
@@ -84,7 +84,7 @@ pub enum CameraRequest {
 This data structure models all the requests that the `Camera` provides.
 On the telemetry side, you would have a similar object
 
-```rust
+```rust,ignore
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub enum CameraResponse {
     Ok,
