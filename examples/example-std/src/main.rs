@@ -402,11 +402,8 @@ fn main() {
                 if KILL_SIGNAL.load(Ordering::Relaxed) {
                     break;
                 }
-                // TODO: We should introduce something like a fixed timeslot helper to allow a more
-                // declarative API. It would also be very useful for the AOCS task.
-                //
-                // TODO: The fixed timeslot handler exists.. use it.
-                // TODO: Why not just use sync code in the PCDU handler, and fully delay there?
+                // The handler never blocks, so the timing is defined here. It matches the
+                // embedded PCDU task.
                 pcdu_handler.periodic_operation(crate::eps::pcdu::OpCode::RegularOp);
                 thread::sleep(Duration::from_millis(50));
                 pcdu_handler.periodic_operation(crate::eps::pcdu::OpCode::PollAndRecvReplies);
