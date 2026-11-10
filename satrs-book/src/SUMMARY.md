@@ -20,3 +20,4 @@
 # Example project
 
 - [The example-std application](./example.md)
+- [AOCS Scheduling](./aocs-scheduling.md)

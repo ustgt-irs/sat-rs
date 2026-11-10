@@ -6,7 +6,7 @@ use std::{
         mpsc,
     },
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use eps::{
@@ -17,7 +17,7 @@ use example_std::{
     TmtcQueues,
     config::{
         OBSW_SERVER_ADDR, PACKET_ID_VALIDATOR, SERVER_PORT,
-        tasks::{FREQ_MS_AOCS, FREQ_MS_CONTROLLER, FREQ_MS_UDP_TMTC, SIM_CLIENT_IDLE_DELAY_MS},
+        tasks::{FREQ_MS_CONTROLLER, FREQ_MS_UDP_TMTC, SIM_CLIENT_IDLE_DELAY_MS, aocs},
     },
 };
 use interface::{
@@ -379,17 +379,22 @@ fn main() {
     let jh_aocs = thread::Builder::new()
         .name("AOCS".to_string())
         .spawn(move || {
+            let mut cycle_start = Instant::now();
             loop {
                 if KILL_SIGNAL.load(Ordering::Relaxed) {
                     break;
                 }
+                // Mode commands of the subsystem and the assembly reach their children in the
+                // same cycle. The second assembly run collects the MGM mode reports.
+                acs_subsystem.periodic_operation();
+                mgm_assembly.periodic_operation();
                 mgm_0_handler.periodic_operation();
                 mgm_1_handler.periodic_operation();
                 mgm_assembly.periodic_operation();
+                checked_wait_for_aocs_slot(cycle_start, aocs::CTRL_OFFSET, "controller");
                 acs_controller.periodic_operation();
                 mgt_handler.periodic_operation();
-                acs_subsystem.periodic_operation();
-                thread::sleep(Duration::from_millis(FREQ_MS_AOCS));
+                cycle_start = checked_wait_for_aocs_slot(cycle_start, aocs::CYCLE, "next cycle");
             }
         })
         .unwrap();
@@ -448,6 +453,21 @@ fn main() {
     jh_controller_thread
         .join()
         .expect("Joining PUS handler thread failed");
+}
+
+/// Returns the actual slot start. It is the planned start, so the cycle does not drift, unless
+/// the previous slot overran.
+///
+/// Checks for deadline misses and logs them.
+fn checked_wait_for_aocs_slot(cycle_start: Instant, offset: Duration, slot: &str) -> Instant {
+    let slot_start = cycle_start + offset;
+    let now = Instant::now();
+    if now > slot_start {
+        log::warn!("AOCS: {slot} slot started {:?} late", now - slot_start);
+        return now;
+    }
+    thread::sleep(slot_start - now);
+    slot_start
 }
 
 pub fn update_time(time_provider: &mut CdsTime, timestamp: &mut [u8]) {
