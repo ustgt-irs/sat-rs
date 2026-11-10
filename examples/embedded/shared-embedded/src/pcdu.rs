@@ -146,6 +146,7 @@ pub struct PcduEndpoints {
     pub sim_reply_rx: PcduSimReplyReceiver,
 }
 
+// ANCHOR: pcdu_task
 /// Runs the PCDU handler with the same timing as the hosted example. The simulator can connect
 /// or disconnect at any time, so the COM interface follows [SIM_AVAILABLE].
 pub async fn pcdu_task(handler: &mut PcduHandler) {
@@ -165,6 +166,7 @@ pub async fn pcdu_task(handler: &mut PcduHandler) {
         Timer::after_millis(300).await;
     }
 }
+// ANCHOR_END: pcdu_task
 
 /// TC which is answered with the next switch info reply.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]

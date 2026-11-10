@@ -6,6 +6,7 @@
 
 - [Communication with Space Systems](./communication.md)
 - [Packet Format and TMTC Modelling](./tmtc-modelling.md)
+- [Task and Object Scheduling](./task-obj-scheduling.md)
 - [Working with Constrained Systems](./constrained-systems.md)
 - [Actions](./actions.md)
 - [Modes and Health](./modes-and-health.md)

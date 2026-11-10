@@ -376,6 +376,7 @@ fn main() {
     }
 
     info!("Starting AOCS thread");
+    // ANCHOR: aocs_thread
     let jh_aocs = thread::Builder::new()
         .name("AOCS".to_string())
         .spawn(move || {
@@ -398,6 +399,7 @@ fn main() {
             }
         })
         .unwrap();
+    // ANCHOR_END: aocs_thread
 
     info!("Starting EPS thread");
     let jh_eps = thread::Builder::new()
@@ -420,6 +422,7 @@ fn main() {
         .unwrap();
 
     info!("Starting controller thread");
+    // ANCHOR: controller_thread
     let jh_controller_thread = thread::Builder::new()
         .name("CTRL".to_string())
         .spawn(move || {
@@ -433,6 +436,7 @@ fn main() {
             }
         })
         .unwrap();
+    // ANCHOR_END: controller_thread
 
     jh_udp_tmtc
         .join()
