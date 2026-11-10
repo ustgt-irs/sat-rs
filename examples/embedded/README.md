@@ -102,6 +102,15 @@ cargo run -p client -- led --mode unified-toggle --toggle-period-ms 200
 
 Use `cargo run -p client -- led --help` to list all modes.
 
+The board also runs the PCDU handler of the `example-std` application. For example, you can
+enable the switch of MGM0 and read back all switch states using
+
+```sh
+cargo run -p client -- pcdu --enable mgm0 --get-switches
+```
+
+The PCDU handler sends an event with all switch states whenever they change.
+
 You can also pass the board address with `--udp-addr` instead of setting it inside the
 configuration file.
 
