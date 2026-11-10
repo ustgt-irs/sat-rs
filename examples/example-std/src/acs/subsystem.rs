@@ -48,8 +48,8 @@ fn build_sequence_tables() -> SequenceModeTables {
         false,
     ));
     off_step_1.add_entry(SequenceTableEntry::new(
-        "OFF_MGT_OFF",
-        ComponentId::AcsMgt as satrs::ComponentId,
+        "OFF_MTQ_OFF",
+        ComponentId::AcsMtq as satrs::ComponentId,
         types::DeviceMode::Off.into(),
         false,
     ));
@@ -65,8 +65,8 @@ fn build_sequence_tables() -> SequenceModeTables {
         false,
     ));
     safe_step_0.add_entry(SequenceTableEntry::new(
-        "SAFE_MGT_NORMAL",
-        ComponentId::AcsMgt as satrs::ComponentId,
+        "SAFE_MTQ_NORMAL",
+        ComponentId::AcsMtq as satrs::ComponentId,
         types::DeviceMode::Normal.into(),
         false,
     ));
@@ -126,18 +126,18 @@ fn mgm_assy_response_to_mode_response(
     }
 }
 
-fn mgt_response_to_mode_response(
-    response: types::acs::mgt::response::ModeResponse,
+fn mtq_response_to_mode_response(
+    response: types::acs::mtq::response::ModeResponse,
 ) -> ModeResponse {
-    let sender_id = ComponentId::AcsMgt as satrs::ComponentId;
+    let sender_id = ComponentId::AcsMtq as satrs::ComponentId;
     match response {
-        types::acs::mgt::response::ModeResponse::Mode(mode) => ModeResponse {
+        types::acs::mtq::response::ModeResponse::Mode(mode) => ModeResponse {
             request_id: 0,
             sender_id,
             reported_mode: mode.into(),
             success: true,
         },
-        types::acs::mgt::response::ModeResponse::SetModeTimeout => ModeResponse {
+        types::acs::mtq::response::ModeResponse::SetModeTimeout => ModeResponse {
             request_id: 0,
             sender_id,
             reported_mode: 0,
@@ -150,14 +150,14 @@ fn mgt_response_to_mode_response(
 pub struct ModeRequestSenders {
     pub mode_request_ctrl: SyncSender<types::acs::ctrl::request::ModeRequest>,
     pub mode_request_mgm_assy: SyncSender<types::acs::mgm_assembly::request::ModeRequest>,
-    pub mode_request_mgt: SyncSender<types::acs::mgt::request::ModeRequest>,
+    pub mode_request_mtq: SyncSender<types::acs::mtq::request::ModeRequest>,
 }
 
 #[derive(Debug)]
 pub struct ModeReportReceivers {
     pub mode_response_ctrl: Receiver<types::acs::ctrl::response::ModeReport>,
     pub mode_response_mgm_assy: Receiver<types::acs::mgm_assembly::response::ModeResponse>,
-    pub mode_response_mgt: Receiver<types::acs::mgt::response::ModeResponse>,
+    pub mode_response_mtq: Receiver<types::acs::mtq::response::ModeResponse>,
 }
 
 #[derive(Debug)]
@@ -192,7 +192,7 @@ impl Subsystem {
             .unwrap();
         mode_store_vec
             .add_component(
-                ComponentId::AcsMgt as satrs::ComponentId,
+                ComponentId::AcsMtq as satrs::ComponentId,
                 types::DeviceMode::Off.into(),
             )
             .unwrap();
@@ -236,10 +236,10 @@ impl Subsystem {
             );
             self.handle_state_machine_result(result);
         }
-        while let Ok(response) = self.mode_report_receivers.mode_response_mgt.try_recv() {
+        while let Ok(response) = self.mode_report_receivers.mode_response_mtq.try_recv() {
             let result = self
                 .subsystem_helper
-                .state_machine(Some(mgt_response_to_mode_response(response)), |request| {
+                .state_machine(Some(mtq_response_to_mode_response(response)), |request| {
                     mode_requests.push(request)
                 });
             self.handle_state_machine_result(result);
@@ -317,10 +317,10 @@ impl Subsystem {
                         types::acs::ctrl::Mode::try_from(request.mode).unwrap(),
                     ))
                     .unwrap(),
-                ComponentId::AcsMgt => self
+                ComponentId::AcsMtq => self
                     .mode_request_senders
-                    .mode_request_mgt
-                    .send(types::acs::mgt::request::ModeRequest::SetMode(
+                    .mode_request_mtq
+                    .send(types::acs::mtq::request::ModeRequest::SetMode(
                         types::DeviceMode::try_from(request.mode).unwrap(),
                     ))
                     .unwrap(),

@@ -62,7 +62,7 @@ enum Commands {
     Mgm0(MgmArgs),
     Mgm1(MgmArgs),
     MgmAssy(MgmAssemblyArgs),
-    Mgt(MgtArgs),
+    Mtq(MtqArgs),
     AcsSubsystem(SubsystemArgs),
     EventManager(EventManagerArgs),
     Pcdu(PcduArgs),
@@ -118,7 +118,7 @@ enum EventSenderSelect {
     Mgm0,
     Mgm1,
     MgmAssy,
-    Mgt,
+    Mtq,
     Pcdu,
     UdpServer,
     TcpServer,
@@ -131,7 +131,7 @@ impl From<EventSenderSelect> for types::ComponentId {
             EventSenderSelect::Controller => types::ComponentId::Controller,
             EventSenderSelect::Mgm0 => types::ComponentId::AcsMgm0,
             EventSenderSelect::Mgm1 => types::ComponentId::AcsMgm1,
-            EventSenderSelect::Mgt => types::ComponentId::AcsMgt,
+            EventSenderSelect::Mtq => types::ComponentId::AcsMtq,
             EventSenderSelect::MgmAssy => types::ComponentId::AcsMgmAssembly,
             EventSenderSelect::Pcdu => types::ComponentId::EpsPcdu,
             EventSenderSelect::UdpServer => types::ComponentId::UdpServer,
@@ -223,7 +223,7 @@ struct MgmArgs {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy, clap::Parser)]
-struct MgtArgs {
+struct MtqArgs {
     #[arg(short, long)]
     ping: bool,
     /// Housekeeping request for the status data set.
@@ -236,7 +236,7 @@ struct MgtArgs {
     mode: Option<DeviceModeSelect>,
     /// Apply a dipole, given as `x,y,z`. Only accepted in normal mode.
     #[arg(long, value_name = "X,Y,Z", value_parser = parse_dipole, allow_hyphen_values = true)]
-    torque: Option<types::acs::mgt::Dipole>,
+    torque: Option<types::acs::mtq::Dipole>,
     #[arg(long, default_value_t = 1000)]
     torque_duration_ms: u64,
     /// Override the device's FDIR health state, for example to clear a `Faulty` state.
@@ -263,12 +263,12 @@ struct PcduArgs {
 enum SwitchSelect {
     Mgm0,
     Mgm1,
-    Mgt,
+    Mtq,
 }
 
 fn switches_bitfield(switches: &[SwitchSelect]) -> types::pcdu::SwitchesBitfield {
     types::pcdu::SwitchesBitfield::builder()
-        .with_magnetorquer(switches.contains(&SwitchSelect::Mgt))
+        .with_magnetorquer(switches.contains(&SwitchSelect::Mtq))
         .with_mgm1(switches.contains(&SwitchSelect::Mgm1))
         .with_mgm0(switches.contains(&SwitchSelect::Mgm0))
         .build()
@@ -345,7 +345,7 @@ fn hk_request_type(
     })
 }
 
-fn parse_dipole(value: &str) -> Result<types::acs::mgt::Dipole, String> {
+fn parse_dipole(value: &str) -> Result<types::acs::mtq::Dipole, String> {
     let axes: Vec<i16> = value
         .split(',')
         .map(|axis| axis.trim().parse::<i16>().map_err(|e| e.to_string()))
@@ -353,22 +353,22 @@ fn parse_dipole(value: &str) -> Result<types::acs::mgt::Dipole, String> {
     let [x, y, z] = axes[..] else {
         return Err(format!("expected 3 values, got {}", axes.len()));
     };
-    Ok(types::acs::mgt::Dipole { x, y, z })
+    Ok(types::acs::mtq::Dipole { x, y, z })
 }
 
-fn send_mgt_request(
+fn send_mtq_request(
     client: &UdpSocket,
     addr: SocketAddr,
-    request: types::acs::mgt::request::Request,
+    request: types::acs::mtq::request::Request,
 ) {
     let packet = types::ccsds::CcsdsTcPacketOwned::new_with_request(
         SpacePacketHeader::new_from_apid(u11::new(Apid::Acs as u16)),
-        TcHeader::new(types::ComponentId::AcsMgt, request.message_type()),
+        TcHeader::new(types::ComponentId::AcsMtq, request.message_type()),
         request,
     );
     let sent_tc_id = CcsdsPacketIdAndPsc::new_from_ccsds_packet(&packet.sp_header);
     log::info!(
-        "sending MGT request {:?} with TC ID {:#010x}",
+        "sending MTQ request {:?} with TC ID {:#010x}",
         request,
         sent_tc_id.raw()
     );
@@ -468,32 +468,32 @@ fn handle_led_command(client: &UdpSocket, addr: SocketAddr, args: LedArgs) {
     }
 }
 
-fn handle_mgt_command(client: &UdpSocket, addr: SocketAddr, args: MgtArgs) -> anyhow::Result<()> {
-    use types::acs::mgt::request::{ModeRequest, Request};
+fn handle_mtq_command(client: &UdpSocket, addr: SocketAddr, args: MtqArgs) -> anyhow::Result<()> {
+    use types::acs::mtq::request::{ModeRequest, Request};
 
     if args.ping {
-        send_mgt_request(client, addr, Request::Ping);
+        send_mtq_request(client, addr, Request::Ping);
     }
     if let Some(hk) = args.hk {
         let req_type = hk_request_type(hk, args.hk_interval_ms)?;
-        send_mgt_request(client, addr, Request::Hk(req_type));
+        send_mtq_request(client, addr, Request::Hk(req_type));
     }
     if let Some(mode) = args.mode {
         let mode = match mode {
             DeviceModeSelect::Off => types::DeviceMode::Off,
             DeviceModeSelect::Normal => types::DeviceMode::Normal,
         };
-        send_mgt_request(client, addr, Request::Mode(ModeRequest::SetMode(mode)));
+        send_mtq_request(client, addr, Request::Mode(ModeRequest::SetMode(mode)));
     }
     if let Some(dipole) = args.torque {
         let request = Request::ApplyTorque {
             dipole,
             duration: Duration::from_millis(args.torque_duration_ms),
         };
-        send_mgt_request(client, addr, request);
+        send_mtq_request(client, addr, request);
     }
     if let Some(health) = args.health {
-        send_mgt_request(
+        send_mtq_request(
             client,
             addr,
             Request::Health(types::HealthRequest::SetHealth(health.into())),
@@ -694,7 +694,7 @@ fn main() -> anyhow::Result<()> {
             Commands::Mgm1(args) => {
                 handle_mgm_command(&client, addr, types::ComponentId::AcsMgm1, args)?
             }
-            Commands::Mgt(args) => handle_mgt_command(&client, addr, args)?,
+            Commands::Mtq(args) => handle_mtq_command(&client, addr, args)?,
             Commands::MgmAssy(mgm_assembly_args) => {
                 let target_id = types::ComponentId::AcsMgmAssembly;
                 if mgm_assembly_args.ping {
@@ -875,7 +875,7 @@ fn handle_event(sender_id: types::ComponentId, data: &[u8]) {
         types::ComponentId::AcsMgmAssembly => {
             log_event::<types::acs::mgm_assembly::Event>(sender_id, data)
         }
-        types::ComponentId::AcsMgt => log_event::<types::acs::mgt::Event>(sender_id, data),
+        types::ComponentId::AcsMtq => log_event::<types::acs::mtq::Event>(sender_id, data),
         types::ComponentId::EpsPcdu => log_event::<types::pcdu::Event>(sender_id, data),
         // TC source events are sent with the ID of the packet source.
         types::ComponentId::UdpServer
@@ -960,10 +960,10 @@ fn handle_raw_tm_packet(data: &[u8]) -> anyhow::Result<()> {
                     );
                 }
                 types::ComponentId::AcsController => todo!(),
-                types::ComponentId::AcsMgt => {
+                types::ComponentId::AcsMtq => {
                     let response =
-                        postcard::from_bytes::<types::acs::mgt::response::Response>(remainder);
-                    log::info!("Received response from MGT: {:?}", response.unwrap());
+                        postcard::from_bytes::<types::acs::mtq::response::Response>(remainder);
+                    log::info!("Received response from MTQ: {:?}", response.unwrap());
                 }
                 types::ComponentId::Led => {
                     let response =
@@ -985,7 +985,7 @@ mod tests {
     fn test_parse_dipole() {
         assert_eq!(
             parse_dipole("-200, 200,1000"),
-            Ok(types::acs::mgt::Dipole {
+            Ok(types::acs::mtq::Dipole {
                 x: -200,
                 y: 200,
                 z: 1000
@@ -1010,9 +1010,9 @@ mod tests {
 
     #[test]
     fn test_negative_torque_argument() {
-        let cli = Cli::try_parse_from(["client", "mgt", "--torque", "-200,200,1000"]).unwrap();
-        let Some(Commands::Mgt(args)) = cli.commands else {
-            panic!("expected mgt subcommand");
+        let cli = Cli::try_parse_from(["client", "mtq", "--torque", "-200,200,1000"]).unwrap();
+        let Some(Commands::Mtq(args)) = cli.commands else {
+            panic!("expected mtq subcommand");
         };
         assert_eq!(args.torque.map(|dipole| dipole.x), Some(-200));
     }

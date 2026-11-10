@@ -324,7 +324,7 @@ impl PcduHandler {
             self.handle_device_switching(SwitchId::Mgm1, state);
         }
         if switches.magnetorquer() {
-            self.handle_device_switching(SwitchId::Mgt, state);
+            self.handle_device_switching(SwitchId::Mtq, state);
         }
     }
 
@@ -682,7 +682,7 @@ mod tests {
         let Some(PcduReply::SwitchInfo { switch_map, .. }) = replies.front_mut() else {
             panic!("no switch info reply");
         };
-        switch_map.remove(&SwitchId::Mgt);
+        switch_map.remove(&SwitchId::Mtq);
         testbench
             .handler
             .periodic_operation(OpCode::PollAndRecvReplies);

@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use tai_time::MonotonicTime;
 
 use crate::{
-    acs::{mgm, mgt},
+    acs::{mgm, mtq},
     eps::{PcduReply, PcduRequest},
 };
 
@@ -17,7 +17,7 @@ pub enum ComponentId {
     SimCtrl,
     Mgm0Lis3Mdl,
     Mgm1Lis3Mdl,
-    Mgt,
+    Mtq,
     Pcdu,
 }
 
@@ -28,8 +28,8 @@ pub enum SimRequest {
         id: mgm::Id,
         request: mgm::Request,
     },
-    /// Raw frame of the MGT serial protocol.
-    Mgt(Vec<u8>),
+    /// Raw frame of the MTQ serial protocol.
+    Mtq(Vec<u8>),
     Pcdu(PcduRequest),
 }
 
@@ -39,9 +39,9 @@ impl From<SimCtrlRequest> for SimRequest {
     }
 }
 
-impl From<mgt::Request> for SimRequest {
-    fn from(request: mgt::Request) -> Self {
-        Self::Mgt(request.to_frame())
+impl From<mtq::Request> for SimRequest {
+    fn from(request: mtq::Request) -> Self {
+        Self::Mtq(request.to_frame())
     }
 }
 
@@ -77,8 +77,8 @@ pub enum SimReply {
         id: mgm::Id,
         reply: mgm::Reply,
     },
-    /// Raw frame of the MGT serial protocol.
-    Mgt(Vec<u8>),
+    /// Raw frame of the MTQ serial protocol.
+    Mtq(Vec<u8>),
     Pcdu(PcduReply),
 }
 
@@ -87,7 +87,7 @@ impl SimReply {
         match self {
             SimReply::SimCtrl(_) => ComponentId::SimCtrl,
             SimReply::Mgm { id, .. } => id.sim_component(),
-            SimReply::Mgt(_) => ComponentId::Mgt,
+            SimReply::Mtq(_) => ComponentId::Mtq,
             SimReply::Pcdu(_) => ComponentId::Pcdu,
         }
     }
@@ -99,9 +99,9 @@ impl From<SimCtrlReply> for SimReply {
     }
 }
 
-impl From<mgt::Reply> for SimReply {
-    fn from(reply: mgt::Reply) -> Self {
-        Self::Mgt(reply.to_frame())
+impl From<mtq::Reply> for SimReply {
+    fn from(reply: mtq::Reply) -> Self {
+        Self::Mtq(reply.to_frame())
     }
 }
 
@@ -182,7 +182,7 @@ pub mod acs {
             pub z: f32,
         }
 
-        pub const MGT_GEN_MAGNETIC_FIELD: SensorValuesMicroTesla = SensorValuesMicroTesla {
+        pub const MTQ_GEN_MAGNETIC_FIELD: SensorValuesMicroTesla = SensorValuesMicroTesla {
             x: 30.0,
             y: -30.0,
             z: 30.0,
@@ -252,12 +252,12 @@ pub mod acs {
     /// A data link layer is deliberately skipped for simplicity. A real serial link would need
     /// framing and error detection, for example COBS encoding and a CRC. Here, the transport
     /// always delivers complete and intact frames.
-    pub mod mgt {
+    pub mod mtq {
         use alloc::{vec, vec::Vec};
         use core::time::Duration;
 
         use num_enum::{IntoPrimitive, TryFromPrimitive};
-        pub use types::acs::mgt::Dipole;
+        pub use types::acs::mtq::Dipole;
 
         #[derive(Debug, Copy, Clone, PartialEq, Eq, TryFromPrimitive, IntoPrimitive)]
         #[repr(u8)]

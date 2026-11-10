@@ -5,7 +5,7 @@ use std::{
 
 use minisim_types::{
     SimCtrlReply, SimCtrlRequest, SimReply, SimRequest, SimRequestWithTime,
-    acs::{mgm, mgt},
+    acs::{mgm, mtq},
     eps::PcduRequest,
 };
 use nexosim::{
@@ -16,7 +16,7 @@ use nexosim::{
 use types::pcdu::{SwitchId, SwitchStateBinary};
 
 use crate::{
-    acs::{mgm::MgmModel, mgt::MgtModel},
+    acs::{mgm::MgmModel, mtq::MtqModel},
     eps::PcduModel,
 };
 
@@ -25,7 +25,7 @@ const WARNING_FOR_STALE_DATA: bool = false;
 const SIM_CTRL_REQ_WIRETAPPING: bool = false;
 const MGM_REQ_WIRETAPPING: bool = false;
 const PCDU_REQ_WIRETAPPING: bool = false;
-const MGT_REQ_WIRETAPPING: bool = false;
+const MTQ_REQ_WIRETAPPING: bool = false;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum ThreadingModel {
@@ -57,8 +57,8 @@ struct ModelInputs {
     mgm_1: MgmInputs,
     pcdu_request_switch_info: EventId<u16>,
     pcdu_switch_device: EventId<(SwitchId, SwitchStateBinary)>,
-    mgt_apply_torque: EventId<(Duration, mgt::Dipole)>,
-    mgt_request_hk: EventId<()>,
+    mtq_apply_torque: EventId<(Duration, mtq::Dipole)>,
+    mtq_request_hk: EventId<()>,
 }
 
 // The simulation controller processes requests and drives the simulation.
@@ -81,12 +81,12 @@ impl SimController {
         let mut mgm_0_model = MgmModel::new(mgm::Id::Mgm0);
         let mut mgm_1_model = MgmModel::new(mgm::Id::Mgm1);
         let mut pcdu_model = PcduModel::new();
-        let mut mgt_model = MgtModel::new();
+        let mut mtq_model = MtqModel::new();
 
         let mgm_0_mailbox = Mailbox::new();
         let mgm_1_mailbox = Mailbox::new();
         let pcdu_mailbox = Mailbox::new();
-        let mgt_mailbox = Mailbox::new();
+        let mtq_mailbox = Mailbox::new();
 
         pcdu_model
             .mgm_0_switch
@@ -95,18 +95,18 @@ impl SimController {
             .mgm_1_switch
             .connect(MgmModel::switch_device, &mgm_1_mailbox);
         pcdu_model
-            .mgt_switch
-            .connect(MgtModel::switch_device, &mgt_mailbox);
-        mgt_model
+            .mtq_switch
+            .connect(MtqModel::switch_device, &mtq_mailbox);
+        mtq_model
             .gen_magnetic_field
             .connect(MgmModel::apply_external_magnetic_field, &mgm_0_mailbox);
-        mgt_model
+        mtq_model
             .gen_magnetic_field
             .connect(MgmModel::apply_external_magnetic_field, &mgm_1_mailbox);
-        mgt_model
+        mtq_model
             .clear_magnetic_field
             .connect(MgmModel::clear_external_magnetic_field, &mgm_0_mailbox);
-        mgt_model
+        mtq_model
             .clear_magnetic_field
             .connect(MgmModel::clear_external_magnetic_field, &mgm_1_mailbox);
 
@@ -114,7 +114,7 @@ impl SimController {
         mgm_0_model.reply.connect_sink(reply_sink.clone());
         mgm_1_model.reply.connect_sink(reply_sink.clone());
         pcdu_model.reply.connect_sink(reply_sink.clone());
-        mgt_model.reply.connect_sink(reply_sink);
+        mtq_model.reply.connect_sink(reply_sink);
 
         let mut sim_init = if threading_model == ThreadingModel::Single {
             SimInit::with_num_threads(1)
@@ -130,18 +130,18 @@ impl SimController {
             pcdu_switch_device: EventSource::new()
                 .connect(PcduModel::switch_device, &pcdu_mailbox)
                 .register(&mut sim_init),
-            mgt_apply_torque: EventSource::new()
-                .connect(MgtModel::apply_torque, &mgt_mailbox)
+            mtq_apply_torque: EventSource::new()
+                .connect(MtqModel::apply_torque, &mtq_mailbox)
                 .register(&mut sim_init),
-            mgt_request_hk: EventSource::new()
-                .connect(MgtModel::request_housekeeping_data, &mgt_mailbox)
+            mtq_request_hk: EventSource::new()
+                .connect(MtqModel::request_housekeeping_data, &mtq_mailbox)
                 .register(&mut sim_init),
         };
         let simulation = sim_init
             .add_model(mgm_0_model, mgm_0_mailbox, "MGM 0 model")
             .add_model(mgm_1_model, mgm_1_mailbox, "MGM 1 model")
             .add_model(pcdu_model, pcdu_mailbox, "PCDU model")
-            .add_model(mgt_model, mgt_mailbox, "MGT model")
+            .add_model(mtq_model, mtq_mailbox, "MTQ model")
             .init(start_time)
             .unwrap();
         Self {
@@ -198,7 +198,7 @@ impl SimController {
                     match request.request {
                         SimRequest::SimCtrl(request) => self.handle_ctrl_request(request),
                         SimRequest::Mgm { id, request } => self.handle_mgm_request(id, request),
-                        SimRequest::Mgt(request) => self.handle_mgt_request(request),
+                        SimRequest::Mtq(request) => self.handle_mtq_request(request),
                         SimRequest::Pcdu(request) => self.handle_pcdu_request(request),
                     }
                 }
@@ -268,25 +268,25 @@ impl SimController {
         }
     }
 
-    fn handle_mgt_request(&mut self, frame: Vec<u8>) {
-        let mgt_request = match mgt::Request::from_frame(&frame) {
+    fn handle_mtq_request(&mut self, frame: Vec<u8>) {
+        let mtq_request = match mtq::Request::from_frame(&frame) {
             Ok(request) => request,
             Err(e) => {
-                log::warn!("dropping invalid MGT frame {frame:02x?}: {e}");
+                log::warn!("dropping invalid MTQ frame {frame:02x?}: {e}");
                 return;
             }
         };
-        if MGT_REQ_WIRETAPPING {
-            log::info!("received MGT request: {mgt_request:?}");
+        if MTQ_REQ_WIRETAPPING {
+            log::info!("received MTQ request: {mtq_request:?}");
         }
-        match mgt_request {
-            mgt::Request::ApplyTorque { duration, dipole } => self
+        match mtq_request {
+            mtq::Request::ApplyTorque { duration, dipole } => self
                 .simulation
-                .process_event(&self.inputs.mgt_apply_torque, (duration, dipole))
+                .process_event(&self.inputs.mtq_apply_torque, (duration, dipole))
                 .unwrap(),
-            mgt::Request::RequestHk => self
+            mtq::Request::RequestHk => self
                 .simulation
-                .process_event(&self.inputs.mgt_request_hk, ())
+                .process_event(&self.inputs.mtq_request_hk, ())
                 .unwrap(),
         };
     }

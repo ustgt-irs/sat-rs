@@ -53,7 +53,7 @@ pub enum TestComponentId {
     MagnetorquerDevice = 5,
     ReactionWheelDevice = 6,
     StartrackerDevice = 7,
-    MgtDevManager = 8,
+    MtqDevManager = 8,
     ReactionWheelAssembly = 10,
     MagnetometerAssembly = 11,
     AcsController = 14,
@@ -1113,10 +1113,10 @@ pub struct TreeTestbench {
     pus: PusModeService,
     subsystem: AcsSubsystem,
     ctrl: AcsController,
-    mgt_manager: DeviceManager,
+    mtq_manager: DeviceManager,
     mgm_assy: MgmAssembly,
     mgm_devs: [CommonDevice; 2],
-    mgt_dev: CommonDevice,
+    mtq_dev: CommonDevice,
 }
 
 impl Default for TreeTestbench {
@@ -1130,8 +1130,8 @@ impl TreeTestbench {
         // All request channel handles.
         let (request_sender_to_mgm_dev_0, request_receiver_mgm_dev_0) = mpsc::sync_channel(10);
         let (request_sender_to_mgm_dev_1, request_receiver_mgm_dev_1) = mpsc::sync_channel(10);
-        let (request_sender_to_mgt_dev, request_receiver_mgt_dev) = mpsc::sync_channel(10);
-        let (request_sender_to_mgt_man, request_receiver_mgt_man) = mpsc::sync_channel(10);
+        let (request_sender_to_mtq_dev, request_receiver_mtq_dev) = mpsc::sync_channel(10);
+        let (request_sender_to_mtq_man, request_receiver_mtq_man) = mpsc::sync_channel(10);
         let (request_sender_to_mgm_assy, request_receiver_mgm_assy) = mpsc::sync_channel(10);
         let (request_sender_to_acs_subsystem, request_receiver_acs_subsystem) =
             mpsc::sync_channel(10);
@@ -1141,7 +1141,7 @@ impl TreeTestbench {
         let (reply_sender_to_mgm_assy, reply_receiver_mgm_assy) = mpsc::sync_channel(10);
         let (reply_sender_to_acs_subsystem, reply_receiver_acs_subsystem) = mpsc::sync_channel(10);
         let (reply_sender_to_pus, reply_receiver_pus) = mpsc::sync_channel(10);
-        let (reply_sender_to_mgt_man, reply_receiver_mgt_man) = mpsc::sync_channel(10);
+        let (reply_sender_to_mtq_man, reply_receiver_mtq_man) = mpsc::sync_channel(10);
 
         // Mode requestors only.
         let mode_node_pus = ModeRequestorOneChildBoundedMpsc::new(
@@ -1155,10 +1155,10 @@ impl TreeTestbench {
             request_receiver_mgm_assy,
             reply_receiver_mgm_assy,
         );
-        let mgt_dev_mgmt_node = ModeRequestorAndHandlerMpscBounded::new(
-            TestComponentId::MgtDevManager as ComponentId,
-            request_receiver_mgt_man,
-            reply_receiver_mgt_man,
+        let mtq_dev_mgmt_node = ModeRequestorAndHandlerMpscBounded::new(
+            TestComponentId::MtqDevManager as ComponentId,
+            request_receiver_mtq_man,
+            reply_receiver_mtq_man,
         );
         let acs_subsystem_node = ModeRequestorAndHandlerMpscBounded::new(
             TestComponentId::AcsSubsystem as ComponentId,
@@ -1175,9 +1175,9 @@ impl TreeTestbench {
             TestComponentId::MagnetometerDevice1 as ComponentId,
             request_receiver_mgm_dev_1,
         );
-        let mgt_dev_node = ModeRequestHandlerMpscBounded::new(
+        let mtq_dev_node = ModeRequestHandlerMpscBounded::new(
             TestComponentId::MagnetorquerDevice as ComponentId,
-            request_receiver_mgt_dev,
+            request_receiver_mtq_dev,
         );
         let acs_ctrl_node = ModeRequestHandlerMpscBounded::new(
             TestComponentId::AcsController as ComponentId,
@@ -1194,15 +1194,15 @@ impl TreeTestbench {
             TestComponentId::MagnetometerDevice1 as ComponentId,
             mgm_dev_node_1,
         );
-        let mut mgt_dev = CommonDevice::new(
-            "MGT",
+        let mut mtq_dev = CommonDevice::new(
+            "MTQ",
             TestComponentId::MagnetorquerDevice as ComponentId,
-            mgt_dev_node,
+            mtq_dev_node,
         );
-        let mut mgt_manager = DeviceManager::new(
-            "MGT_MANAGER",
-            TestComponentId::MgtDevManager as ComponentId,
-            mgt_dev_mgmt_node,
+        let mut mtq_manager = DeviceManager::new(
+            "MTQ_MANAGER",
+            TestComponentId::MtqDevManager as ComponentId,
+            mtq_dev_mgmt_node,
         );
         let mut mgm_assy = MgmAssembly::new(mgm_assy_node);
         let mut acs_subsystem = AcsSubsystem::new(acs_subsystem_node);
@@ -1224,8 +1224,8 @@ impl TreeTestbench {
             ModeAndSubmode::new(DefaultMode::NORMAL as u32, 0),
         ));
         target_table_safe.add_entry(TargetTableEntry::new_with_precise_submode(
-            "MGT_MAN_NML",
-            TestComponentId::MgtDevManager as ComponentId,
+            "MTQ_MAN_NML",
+            TestComponentId::MtqDevManager as ComponentId,
             ModeAndSubmode::new(DefaultMode::NORMAL as u32, 0),
         ));
         let mut sequence_tbl_safe_0 = SequenceTableMapTable::new("SAFE_SEQ_0_TBL");
@@ -1236,8 +1236,8 @@ impl TreeTestbench {
             false,
         ));
         sequence_tbl_safe_0.add_entry(SequenceTableEntry::new(
-            "SAFE_SEQ_0_MGT_MAN",
-            TestComponentId::MgtDevManager as ComponentId,
+            "SAFE_SEQ_0_MTQ_MAN",
+            TestComponentId::MtqDevManager as ComponentId,
             ModeAndSubmode::new(DefaultMode::NORMAL as Mode, 0),
             false,
         ));
@@ -1290,14 +1290,14 @@ impl TreeTestbench {
         );
         connect_mode_nodes(
             &mut pus_service,
-            request_sender_to_mgt_man.clone(),
-            &mut mgt_manager,
+            request_sender_to_mtq_man.clone(),
+            &mut mtq_manager,
             reply_sender_to_pus.clone(),
         );
         connect_mode_nodes(
             &mut pus_service,
-            request_sender_to_mgt_dev.clone(),
-            &mut mgt_dev,
+            request_sender_to_mtq_dev.clone(),
+            &mut mtq_dev,
             reply_sender_to_pus.clone(),
         );
 
@@ -1316,8 +1316,8 @@ impl TreeTestbench {
         );
         connect_mode_nodes(
             &mut acs_subsystem,
-            request_sender_to_mgt_man.clone(),
-            &mut mgt_manager,
+            request_sender_to_mtq_man.clone(),
+            &mut mtq_manager,
             reply_sender_to_acs_subsystem.clone(),
         );
 
@@ -1335,18 +1335,18 @@ impl TreeTestbench {
         );
 
         connect_mode_nodes(
-            &mut mgt_manager,
-            request_sender_to_mgt_dev,
-            &mut mgt_dev,
-            reply_sender_to_mgt_man,
+            &mut mtq_manager,
+            request_sender_to_mtq_dev,
+            &mut mtq_dev,
+            reply_sender_to_mtq_man,
         );
         Self {
             pus: pus_service,
             subsystem: acs_subsystem,
             ctrl: acs_ctrl,
             mgm_assy,
-            mgt_dev,
-            mgt_manager,
+            mtq_dev,
+            mtq_manager,
             mgm_devs: [mgm_dev_0, mgm_dev_1],
         }
     }
@@ -1355,11 +1355,11 @@ impl TreeTestbench {
         self.pus.run();
         self.subsystem.run();
         self.ctrl.run();
-        self.mgt_manager.run();
+        self.mtq_manager.run();
         self.mgm_assy.run();
         self.mgm_devs[0].run();
         self.mgm_devs[1].run();
-        self.mgt_dev.run();
+        self.mtq_dev.run();
     }
 }
 
@@ -1390,19 +1390,19 @@ fn announce_recursively() {
         assert_eq!(announces.len(), 1);
     }
     assert_eq!(announces.len(), 1);
-    assert_eq!(tb.mgt_dev.get_and_clear_num_mode_msgs(), 1);
-    announces = tb.mgt_dev.mode_req_mock.announce_mode_calls.borrow_mut();
-    assert_eq!(tb.mgt_dev.mode_req_mock.start_transition_calls.len(), 0);
-    assert_eq!(tb.mgt_dev.mode_and_submode(), UNKNOWN_MODE);
+    assert_eq!(tb.mtq_dev.get_and_clear_num_mode_msgs(), 1);
+    announces = tb.mtq_dev.mode_req_mock.announce_mode_calls.borrow_mut();
+    assert_eq!(tb.mtq_dev.mode_req_mock.start_transition_calls.len(), 0);
+    assert_eq!(tb.mtq_dev.mode_and_submode(), UNKNOWN_MODE);
     assert_eq!(announces.len(), 1);
-    assert_eq!(tb.mgt_manager.get_num_mode_requests(), 1);
+    assert_eq!(tb.mtq_manager.get_num_mode_requests(), 1);
     announces = tb
-        .mgt_manager
+        .mtq_manager
         .mode_req_mock
         .announce_mode_calls
         .borrow_mut();
-    assert_eq!(tb.mgt_manager.mode_req_mock.start_transition_calls.len(), 0);
-    assert_eq!(tb.mgt_manager.mode_and_submode(), UNKNOWN_MODE);
+    assert_eq!(tb.mtq_manager.mode_req_mock.start_transition_calls.len(), 0);
+    assert_eq!(tb.mtq_manager.mode_and_submode(), UNKNOWN_MODE);
     assert_eq!(announces.len(), 1);
 }
 
@@ -1455,11 +1455,11 @@ fn command_safe_mode() {
         ModeAndSubmode::new(DefaultMode::NORMAL as u32, 0)
     );
     assert_eq!(
-        tb.mgt_manager.mode_and_submode(),
+        tb.mtq_manager.mode_and_submode(),
         ModeAndSubmode::new(DefaultMode::NORMAL as u32, 0)
     );
     assert_eq!(
-        tb.mgt_dev.mode_and_submode(),
+        tb.mtq_dev.mode_and_submode(),
         ModeAndSubmode::new(DefaultMode::NORMAL as u32, 0)
     );
     assert_eq!(
@@ -1537,7 +1537,7 @@ fn command_safe_mode() {
         ModeAndSubmode::new(DefaultMode::NORMAL as u32, 0),
     );
     expected_modes.insert(
-        TestComponentId::MgtDevManager as ComponentId,
+        TestComponentId::MtqDevManager as ComponentId,
         ModeAndSubmode::new(DefaultMode::NORMAL as u32, 0),
     );
     while let Some(reply) = tb.subsystem.mode_reply_mock.mode_reply_messages.pop_front() {
@@ -1572,8 +1572,8 @@ fn command_safe_mode() {
     assert!(expected_modes.is_empty());
 
     generic_mock_check(
-        "mgt mgmt",
-        &mut tb.mgt_manager.mode_req_mock,
+        "mtq mgmt",
+        &mut tb.mtq_manager.mode_req_mock,
         ModeAndSubmode::new(DefaultMode::NORMAL as u32, 0),
         expected_req_id_not_ctrl,
     );
@@ -1583,7 +1583,7 @@ fn command_safe_mode() {
         ModeAndSubmode::new(DefaultMode::NORMAL as u32, 0),
     );
     let reply = tb
-        .mgt_manager
+        .mtq_manager
         .mode_reply_mock
         .mode_reply_messages
         .pop_front()
@@ -1591,8 +1591,8 @@ fn command_safe_mode() {
     generic_mode_reply_checker(reply.0, reply.1, &mut expected_modes);
 
     generic_mock_check(
-        "mgt dev",
-        &mut tb.mgt_dev.mode_req_mock,
+        "mtq dev",
+        &mut tb.mtq_dev.mode_req_mock,
         ModeAndSubmode::new(DefaultMode::NORMAL as u32, 0),
         expected_req_id_not_ctrl,
     );

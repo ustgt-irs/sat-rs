@@ -37,7 +37,7 @@ flowchart TD
         subgraph AOCSRow2[ ]
             direction LR
             AcsCtrl[ACS Controller]
-            Mgt[MTQ Handler]
+            Mtq[MTQ Handler]
             AcsSub[ACS Subsystem]
         end
     end

@@ -350,7 +350,7 @@ impl PcduHandler {
             self.handle_device_switching(SwitchId::Mgm1, state);
         }
         if switches.magnetorquer() {
-            self.handle_device_switching(SwitchId::Mgt, state);
+            self.handle_device_switching(SwitchId::Mtq, state);
         }
     }
 

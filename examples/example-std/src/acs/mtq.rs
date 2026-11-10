@@ -3,12 +3,12 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use example_std::{HkHelperSingleSet, TmtcQueues};
-use minisim_types::acs::mgt as sim_mgt;
+use minisim_types::acs::mtq as sim_mtq;
 use minisim_types::{SimReply, SimRequest, SimRequestWithTime};
 use satrs::fdir::{FaultCounterStd, RecoveryEvent};
 use satrs::health::HealthTableMapSync;
 use satrs::spacepackets::CcsdsPacketIdAndPsc;
-use types::acs::mgt::{
+use types::acs::mtq::{
     self, HkSet,
     request::{ModeRequest, Request},
     response::{ModeResponse, Response},
@@ -30,25 +30,25 @@ pub const REPLY_FAULT_DECREMENT_AFTER: Duration = Duration::from_secs(30);
 /// Interface for ideal device which never fails.
 #[derive(Default)]
 pub struct DummyInterface {
-    dipole: mgt::Dipole,
+    dipole: mtq::Dipole,
     torque_end: Option<Instant>,
 }
 
 impl DummyInterface {
     fn transfer(&mut self, frame: &[u8]) -> Option<Vec<u8>> {
-        let reply = match sim_mgt::Request::from_frame(frame).ok()? {
-            sim_mgt::Request::ApplyTorque { duration, dipole } => {
+        let reply = match sim_mtq::Request::from_frame(frame).ok()? {
+            sim_mtq::Request::ApplyTorque { duration, dipole } => {
                 self.dipole = dipole;
                 self.torque_end = Some(Instant::now() + duration);
-                sim_mgt::Reply::Ack
+                sim_mtq::Reply::Ack
             }
-            sim_mgt::Request::RequestHk => {
+            sim_mtq::Request::RequestHk => {
                 let torquing = self.torque_end.is_some_and(|end| Instant::now() < end);
-                sim_mgt::Reply::Hk(sim_mgt::HkSet {
+                sim_mtq::Reply::Hk(sim_mtq::HkSet {
                     dipole: if torquing {
                         self.dipole
                     } else {
-                        mgt::Dipole::default()
+                        mtq::Dipole::default()
                     },
                     torquing,
                 })
@@ -76,17 +76,17 @@ impl SimInterface {
         while self.sim_reply_rx.try_recv().is_ok() {}
         if let Err(e) = self
             .sim_request_tx
-            .send(SimRequestWithTime::new_with_epoch_time(SimRequest::Mgt(
+            .send(SimRequestWithTime::new_with_epoch_time(SimRequest::Mtq(
                 frame.to_vec(),
             )))
         {
-            log::error!("failed to send MGT SIM request: {e}");
+            log::error!("failed to send MTQ SIM request: {e}");
             return None;
         }
         match self.sim_reply_rx.recv_timeout(REPLY_TIMEOUT).ok()? {
-            SimReply::Mgt(frame) => Some(frame),
+            SimReply::Mtq(frame) => Some(frame),
             sim_reply => {
-                log::warn!("unexpected MGT SIM reply: {sim_reply:?}");
+                log::warn!("unexpected MTQ SIM reply: {sim_reply:?}");
                 None
             }
         }
@@ -94,21 +94,21 @@ impl SimInterface {
 }
 
 /// Frame based transport to the device. The handler implements the protocol on top of it.
-pub enum MgtCommunication {
+pub enum MtqCommunication {
     Dummy(DummyInterface),
     Sim(SimInterface),
     #[allow(dead_code)]
     Test(TestInterface),
 }
 
-impl MgtCommunication {
+impl MtqCommunication {
     /// Sends a request frame and blocks until the reply frame arrives. Returns [None] if there
     /// was no reply in time.
     fn transfer(&mut self, frame: &[u8]) -> Option<Vec<u8>> {
         match self {
-            MgtCommunication::Dummy(dummy) => dummy.transfer(frame),
-            MgtCommunication::Sim(sim) => sim.transfer(frame),
-            MgtCommunication::Test(test) => {
+            MtqCommunication::Dummy(dummy) => dummy.transfer(frame),
+            MtqCommunication::Sim(sim) => sim.transfer(frame),
+            MtqCommunication::Test(test) => {
                 test.sent_frames.push(frame.to_vec());
                 test.replies.pop_front()
             }
@@ -123,7 +123,7 @@ pub struct ModeLeafHelper {
     pub report_tx: mpsc::SyncSender<ModeResponse>,
 }
 
-/// Magnetorquer (MGT) device handler.
+/// Magnetorquer (MTQ) device handler.
 ///
 /// The device is powered through the PCDU and only accepts torque commands in normal mode.
 /// In normal mode, the device HK is polled every cycle and cached as the HK set of the handler.
@@ -132,33 +132,33 @@ pub struct ModeLeafHelper {
 ///
 /// This device handler includes several components beyond the scope of commanding the device:
 ///
-/// - The [MgtCommunication] structure models different communication interfaces to the
+/// - The [MtqCommunication] structure models different communication interfaces to the
 ///   physical device.
 /// - The device manages and commands its own power switch using the [SwitchAndModeHelper].
 /// - The device FDIR is integrated directly into the device handler using the [DeviceFdir]
 ///   helper.
 /// - Periodic HK is generated using the [HkHelperSingleSet] helper.
 /// - The device is a mode leaf in the ACS tree and has a [ModeLeafHelper] for this.
-pub struct MgtHandler {
+pub struct MtqHandler {
     tmtc_queues: TmtcQueues,
-    pub com: MgtCommunication,
+    pub com: MtqCommunication,
     hk_set: HkSet,
     hk_helper: HkHelperSingleSet,
     switch_and_mode_helper: SwitchAndModeHelper<DeviceMode>,
     mode_leaf_helper: ModeLeafHelper,
     fdir: DeviceFdir,
-    event_tx: mpsc::SyncSender<mgt::Event>,
+    event_tx: mpsc::SyncSender<mtq::Event>,
 }
 
-impl MgtHandler {
+impl MtqHandler {
     pub fn new(
         tmtc_queues: TmtcQueues,
         switch_helper: PowerSwitchHelper,
-        com: MgtCommunication,
+        com: MtqCommunication,
         mode_leaf_helper: ModeLeafHelper,
         mode_timeout: Duration,
         health_table: HealthTableMapSync,
-        event_tx: mpsc::SyncSender<mgt::Event>,
+        event_tx: mpsc::SyncSender<mtq::Event>,
     ) -> Self {
         Self {
             tmtc_queues,
@@ -169,12 +169,12 @@ impl MgtHandler {
                 DeviceMode::Off,
                 mode_timeout,
                 switch_helper,
-                SwitchId::Mgt,
+                SwitchId::Mtq,
             ),
             mode_leaf_helper,
             fdir: DeviceFdir::new(
-                "MGT",
-                ComponentId::AcsMgt,
+                "MTQ",
+                ComponentId::AcsMtq,
                 health_table,
                 FaultCounterStd::new(REPLY_FAULT_THRESHOLD, REPLY_FAULT_DECREMENT_AFTER),
             ),
@@ -225,8 +225,8 @@ impl MgtHandler {
     }
 
     fn poll_hk(&mut self) {
-        match self.transfer(sim_mgt::Request::RequestHk) {
-            Some(sim_mgt::Reply::Hk(hk)) => {
+        match self.transfer(sim_mtq::Request::RequestHk) {
+            Some(sim_mtq::Reply::Hk(hk)) => {
                 self.fdir.register_success();
                 self.hk_set = HkSet {
                     valid: true,
@@ -239,15 +239,15 @@ impl MgtHandler {
     }
 
     /// Returns [None] if there was no reply in time or the reply frame was invalid.
-    fn transfer(&mut self, request: sim_mgt::Request) -> Option<sim_mgt::Reply> {
+    fn transfer(&mut self, request: sim_mtq::Request) -> Option<sim_mtq::Reply> {
         let frame = self.com.transfer(&request.to_frame())?;
-        sim_mgt::Reply::from_frame(&frame)
-            .inspect_err(|e| log::warn!("MGT: invalid reply frame {frame:02x?}: {e}"))
+        sim_mtq::Reply::from_frame(&frame)
+            .inspect_err(|e| log::warn!("MTQ: invalid reply frame {frame:02x?}: {e}"))
             .ok()
     }
 
-    fn register_reply_fault(&mut self, reply: Option<sim_mgt::Reply>) {
-        log::warn!("MGT: missing or unexpected reply {reply:?}");
+    fn register_reply_fault(&mut self, reply: Option<sim_mtq::Reply>) {
+        log::warn!("MTQ: missing or unexpected reply {reply:?}");
         self.hk_set.valid = false;
         self.fdir.register_fault(&mut self.switch_and_mode_helper);
         self.handle_fdir_events();
@@ -256,7 +256,7 @@ impl MgtHandler {
     fn handle_fdir_events(&mut self) {
         while let Some(event) = self.fdir.next_event() {
             let event = match event {
-                FdirEvent::FaultThresholdExceeded => mgt::Event::ReplyFaultThresholdExceeded,
+                FdirEvent::FaultThresholdExceeded => mtq::Event::ReplyFaultThresholdExceeded,
                 FdirEvent::Recovery(recovery_event) => {
                     // The device is power cycled or switched off.
                     if matches!(
@@ -265,7 +265,7 @@ impl MgtHandler {
                     ) {
                         self.hk_set = HkSet::default();
                     }
-                    mgt::Event::Recovery(recovery_event)
+                    mtq::Event::Recovery(recovery_event)
                 }
             };
             self.send_event(event);
@@ -282,12 +282,12 @@ impl MgtHandler {
             let request = match postcard::from_bytes::<Request>(&packet.payload) {
                 Ok(request) => request,
                 Err(e) => {
-                    log::warn!("MGT: failed to deserialize request: {}", e);
+                    log::warn!("MTQ: failed to deserialize request: {}", e);
                     continue;
                 }
             };
             log::info!(
-                "MGT: received request {:?} with TC ID {:#010x}",
+                "MTQ: received request {:?} with TC ID {:#010x}",
                 request,
                 tc_id.raw()
             );
@@ -307,7 +307,7 @@ impl MgtHandler {
                     self.handle_torque_command(tc_id, dipole, duration)
                 }
                 Request::Health(HealthRequest::SetHealth(health)) => {
-                    log::info!("MGT: setting health to {health:?} via ground command");
+                    log::info!("MTQ: setting health to {health:?} via ground command");
                     self.fdir.set_health(health);
                     self.send_telemetry(Some(tc_id), Response::Ok);
                 }
@@ -335,23 +335,23 @@ impl MgtHandler {
             }
             HkRequestType::DisablePeriodic => self.hk_helper.enabled = false,
             HkRequestType::ModifyInterval(interval) => self.hk_helper.frequency = interval,
-            _ => log::warn!("MGT: unhandled HK request"),
+            _ => log::warn!("MTQ: unhandled HK request"),
         }
     }
 
     fn handle_torque_command(
         &mut self,
         tc_id: CcsdsPacketIdAndPsc,
-        dipole: mgt::Dipole,
+        dipole: mtq::Dipole,
         duration: Duration,
     ) {
         if !self.ready_for_commanding() {
-            log::warn!("MGT: rejecting torque command, device not in normal mode");
+            log::warn!("MTQ: rejecting torque command, device not in normal mode");
             self.send_telemetry(Some(tc_id), Response::NotInNormalMode);
             return;
         }
-        match self.transfer(sim_mgt::Request::ApplyTorque { duration, dipole }) {
-            Some(sim_mgt::Reply::Ack) => {
+        match self.transfer(sim_mtq::Request::ApplyTorque { duration, dipole }) {
+            Some(sim_mtq::Reply::Ack) => {
                 self.fdir.register_success();
                 self.send_telemetry(Some(tc_id), Response::Ok);
             }
@@ -367,7 +367,7 @@ impl MgtHandler {
         target_mode: DeviceMode,
         tc_commander: Option<CcsdsPacketIdAndPsc>,
     ) {
-        log::info!("MGT: transitioning to mode {:?}", target_mode);
+        log::info!("MTQ: transitioning to mode {:?}", target_mode);
         self.fdir.handle_mode_command(&self.switch_and_mode_helper);
         if target_mode == DeviceMode::Off {
             self.hk_set = HkSet::default();
@@ -377,8 +377,8 @@ impl MgtHandler {
     }
 
     fn handle_mode_reached(&mut self, tc_commander: Option<CcsdsPacketIdAndPsc>) {
-        log::info!("MGT: mode {:?} reached", self.mode());
-        self.send_event(mgt::Event::ModeChanged(self.mode()));
+        log::info!("MTQ: mode {:?} reached", self.mode());
+        self.send_event(mtq::Event::ModeChanged(self.mode()));
         if tc_commander.is_some() {
             self.send_telemetry(tc_commander, Response::Ok);
         }
@@ -404,20 +404,20 @@ impl MgtHandler {
             .unwrap();
     }
 
-    fn send_event(&self, event: mgt::Event) {
+    fn send_event(&self, event: mtq::Event) {
         if let Err(e) = self.event_tx.send(event) {
-            log::warn!("MGT: failed to send event {:?}: {}", event, e);
+            log::warn!("MTQ: failed to send event {:?}: {}", event, e);
         }
     }
 
     fn send_telemetry(&self, tc_id: Option<CcsdsPacketIdAndPsc>, response: Response) {
-        match pack_ccsds_tm_packet_for_now(ComponentId::AcsMgt, tc_id, &response) {
+        match pack_ccsds_tm_packet_for_now(ComponentId::AcsMtq, tc_id, &response) {
             Ok(packet) => {
                 if let Err(e) = self.tmtc_queues.tm_tx.send(packet) {
-                    log::warn!("MGT: failed to send TM packet: {}", e);
+                    log::warn!("MTQ: failed to send TM packet: {}", e);
                 }
             }
-            Err(e) => log::warn!("MGT: failed to pack TM packet: {}", e),
+            Err(e) => log::warn!("MTQ: failed to pack TM packet: {}", e),
         }
     }
 }
@@ -442,31 +442,31 @@ mod tests {
     use super::*;
 
     impl TestInterface {
-        fn sent_requests(&self) -> Vec<sim_mgt::Request> {
+        fn sent_requests(&self) -> Vec<sim_mtq::Request> {
             self.sent_frames
                 .iter()
-                .map(|frame| sim_mgt::Request::from_frame(frame).unwrap())
+                .map(|frame| sim_mtq::Request::from_frame(frame).unwrap())
                 .collect()
         }
 
-        fn push_reply(&mut self, reply: sim_mgt::Reply) {
+        fn push_reply(&mut self, reply: sim_mtq::Reply) {
             self.replies.push_back(reply.to_frame());
         }
     }
 
-    struct MgtTestbench {
+    struct MtqTestbench {
         parent_request_tx: mpsc::SyncSender<ModeRequest>,
         parent_report_rx: mpsc::Receiver<ModeResponse>,
         shared_switch_set: SharedSwitchSet,
         switch_rx: mpsc::Receiver<SwitchRequest>,
         tc_tx: mpsc::SyncSender<CcsdsTcPacketOwned>,
         tm_rx: mpsc::Receiver<CcsdsTmPacketOwned>,
-        event_rx: mpsc::Receiver<mgt::Event>,
+        event_rx: mpsc::Receiver<mtq::Event>,
         health_table: HealthTableMapSync,
-        handler: MgtHandler,
+        handler: MtqHandler,
     }
 
-    impl MgtTestbench {
+    impl MtqTestbench {
         fn new() -> Self {
             let (parent_request_tx, request_rx) = mpsc::sync_channel(5);
             let (report_tx, parent_report_rx) = mpsc::sync_channel(5);
@@ -475,13 +475,13 @@ mod tests {
             let (switch_tx, switch_rx) = mpsc::sync_channel(10);
             let (event_tx, event_rx) = mpsc::sync_channel(20);
             let mut switch_map = SwitchMap::new();
-            switch_map.insert(SwitchId::Mgt, SwitchState::Off).unwrap();
+            switch_map.insert(SwitchId::Mtq, SwitchState::Off).unwrap();
             let shared_switch_set = SharedSwitchSet::new(Mutex::new(SwitchSet::new(switch_map)));
             let health_table = HealthTableMapSync::default();
-            let mut handler = MgtHandler::new(
+            let mut handler = MtqHandler::new(
                 TmtcQueues { tc_rx, tm_tx },
                 PowerSwitchHelper::new(switch_tx, shared_switch_set.clone()),
-                MgtCommunication::Test(TestInterface::default()),
+                MtqCommunication::Test(TestInterface::default()),
                 ModeLeafHelper {
                     request_rx,
                     report_tx,
@@ -508,7 +508,7 @@ mod tests {
             self.tc_tx
                 .send(CcsdsTcPacketOwned::new_with_request(
                     SpacePacketHeader::new_from_apid(u11::new(Apid::Acs as u16)),
-                    TcHeader::new(ComponentId::AcsMgt, request.message_type()),
+                    TcHeader::new(ComponentId::AcsMtq, request.message_type()),
                     request,
                 ))
                 .unwrap();
@@ -516,8 +516,8 @@ mod tests {
 
         fn next_response(&self) -> Response {
             let tm = self.tm_rx.try_recv().expect("no TM generated");
-            assert_eq!(tm.tm_header.sender_id, ComponentId::AcsMgt);
-            postcard::from_bytes(&tm.payload).expect("invalid MGT response")
+            assert_eq!(tm.tm_header.sender_id, ComponentId::AcsMtq);
+            postcard::from_bytes(&tm.payload).expect("invalid MTQ response")
         }
 
         /// Completes the power switch handshake for a commanded switch-on.
@@ -532,8 +532,8 @@ mod tests {
 
         fn test_interface(&mut self) -> &mut TestInterface {
             match &mut self.handler.com {
-                MgtCommunication::Test(test) => test,
-                _ => panic!("unexpected MGT interface"),
+                MtqCommunication::Test(test) => test,
+                _ => panic!("unexpected MTQ interface"),
             }
         }
 
@@ -541,14 +541,14 @@ mod tests {
             self.shared_switch_set
                 .lock()
                 .unwrap()
-                .set_switch_state(SwitchId::Mgt, state);
+                .set_switch_state(SwitchId::Mtq, state);
         }
 
         fn health(&self) -> Option<HealthState> {
-            self.health_table.health(ComponentId::AcsMgt.into())
+            self.health_table.health(ComponentId::AcsMtq.into())
         }
 
-        fn drain_events(&self) -> Vec<mgt::Event> {
+        fn drain_events(&self) -> Vec<mtq::Event> {
             self.event_rx.try_iter().collect()
         }
 
@@ -576,7 +576,7 @@ mod tests {
 
     #[test]
     fn test_initial_state_no_polling() {
-        let mut testbench = MgtTestbench::new();
+        let mut testbench = MtqTestbench::new();
         testbench.handler.periodic_operation();
         assert_eq!(testbench.handler.mode(), DeviceMode::Off);
         assert!(testbench.test_interface().sent_frames.is_empty());
@@ -584,11 +584,11 @@ mod tests {
 
     #[test]
     fn test_switch_to_normal() {
-        let mut testbench = MgtTestbench::new();
+        let mut testbench = MtqTestbench::new();
         testbench.send_tc(Request::Mode(ModeRequest::SetMode(DeviceMode::Normal)));
         testbench.handler.periodic_operation();
         let switch_request = testbench.switch_rx.try_recv().expect("no switch request");
-        assert_eq!(switch_request.switch_id, SwitchId::Mgt);
+        assert_eq!(switch_request.switch_id, SwitchId::Mtq);
         assert_eq!(switch_request.target_state, SwitchStateBinary::On);
         assert_eq!(testbench.handler.mode(), DeviceMode::Off);
 
@@ -598,7 +598,7 @@ mod tests {
         assert_eq!(testbench.next_response(), Response::Ok);
         assert!(matches!(
             testbench.event_rx.try_recv(),
-            Ok(mgt::Event::ModeChanged(DeviceMode::Normal))
+            Ok(mtq::Event::ModeChanged(DeviceMode::Normal))
         ));
         assert_eq!(
             testbench.parent_report_rx.try_recv(),
@@ -608,7 +608,7 @@ mod tests {
 
     #[test]
     fn test_mode_command_from_parent() {
-        let mut testbench = MgtTestbench::new();
+        let mut testbench = MtqTestbench::new();
         testbench
             .parent_request_tx
             .send(ModeRequest::SetMode(DeviceMode::Normal))
@@ -626,9 +626,9 @@ mod tests {
 
     #[test]
     fn test_torque_command_rejected_when_off() {
-        let mut testbench = MgtTestbench::new();
+        let mut testbench = MtqTestbench::new();
         testbench.send_tc(Request::ApplyTorque {
-            dipole: mgt::Dipole { x: 1, y: 2, z: 3 },
+            dipole: mtq::Dipole { x: 1, y: 2, z: 3 },
             duration: Duration::from_millis(100),
         });
         testbench.handler.periodic_operation();
@@ -638,32 +638,32 @@ mod tests {
 
     #[test]
     fn test_torque_command_forwarded_in_normal_mode() {
-        let mut testbench = MgtTestbench::new();
+        let mut testbench = MtqTestbench::new();
         testbench.switch_to_normal();
         testbench.test_interface().sent_frames.clear();
-        testbench.test_interface().push_reply(sim_mgt::Reply::Ack);
+        testbench.test_interface().push_reply(sim_mtq::Reply::Ack);
 
         testbench.send_tc(Request::ApplyTorque {
-            dipole: mgt::Dipole { x: 1, y: 2, z: 3 },
+            dipole: mtq::Dipole { x: 1, y: 2, z: 3 },
             duration: Duration::from_millis(100),
         });
         testbench.handler.periodic_operation();
         assert_eq!(testbench.next_response(), Response::Ok);
         assert_eq!(
             testbench.test_interface().sent_requests().first(),
-            Some(&sim_mgt::Request::ApplyTorque {
+            Some(&sim_mtq::Request::ApplyTorque {
                 duration: Duration::from_millis(100),
-                dipole: mgt::Dipole { x: 1, y: 2, z: 3 },
+                dipole: mtq::Dipole { x: 1, y: 2, z: 3 },
             })
         );
     }
 
     #[test]
     fn test_torque_command_without_ack() {
-        let mut testbench = MgtTestbench::new();
+        let mut testbench = MtqTestbench::new();
         testbench.switch_to_normal();
         testbench.send_tc(Request::ApplyTorque {
-            dipole: mgt::Dipole { x: 1, y: 2, z: 3 },
+            dipole: mtq::Dipole { x: 1, y: 2, z: 3 },
             duration: Duration::from_millis(100),
         });
         testbench.handler.periodic_operation();
@@ -672,19 +672,19 @@ mod tests {
 
     #[test]
     fn test_hk_polling_updates_hk_set() {
-        let mut testbench = MgtTestbench::new();
+        let mut testbench = MtqTestbench::new();
         testbench.switch_to_normal();
         assert!(
             testbench
                 .test_interface()
                 .sent_requests()
-                .contains(&sim_mgt::Request::RequestHk)
+                .contains(&sim_mtq::Request::RequestHk)
         );
 
         testbench
             .test_interface()
-            .push_reply(sim_mgt::Reply::Hk(sim_mgt::HkSet {
-                dipole: mgt::Dipole { x: 1, y: 2, z: 3 },
+            .push_reply(sim_mtq::Reply::Hk(sim_mtq::HkSet {
+                dipole: mtq::Dipole { x: 1, y: 2, z: 3 },
                 torquing: true,
             }));
         testbench.handler.periodic_operation();
@@ -694,7 +694,7 @@ mod tests {
             testbench.next_response(),
             Response::Hk(HkSet {
                 valid: true,
-                dipole: mgt::Dipole { x: 1, y: 2, z: 3 },
+                dipole: mtq::Dipole { x: 1, y: 2, z: 3 },
                 torquing: true,
             })
         );
@@ -702,7 +702,7 @@ mod tests {
 
     #[test]
     fn test_switch_off() {
-        let mut testbench = MgtTestbench::new();
+        let mut testbench = MtqTestbench::new();
         testbench.switch_to_normal();
         testbench.drain_events();
         while testbench.parent_report_rx.try_recv().is_ok() {}
@@ -721,7 +721,7 @@ mod tests {
         assert_eq!(testbench.next_response(), Response::Ok);
         assert!(matches!(
             testbench.drain_events().as_slice(),
-            [mgt::Event::ModeChanged(DeviceMode::Off)]
+            [mtq::Event::ModeChanged(DeviceMode::Off)]
         ));
         assert_eq!(
             testbench.parent_report_rx.try_recv(),
@@ -731,12 +731,12 @@ mod tests {
 
     #[test]
     fn test_hk_set_invalid_after_switch_off() {
-        let mut testbench = MgtTestbench::new();
+        let mut testbench = MtqTestbench::new();
         testbench.switch_to_normal();
         testbench
             .test_interface()
-            .push_reply(sim_mgt::Reply::Hk(sim_mgt::HkSet {
-                dipole: mgt::Dipole::default(),
+            .push_reply(sim_mtq::Reply::Hk(sim_mtq::HkSet {
+                dipole: mtq::Dipole::default(),
                 torquing: false,
             }));
         testbench.handler.periodic_operation();
@@ -749,7 +749,7 @@ mod tests {
 
     #[test]
     fn test_periodic_hk() {
-        let mut testbench = MgtTestbench::new();
+        let mut testbench = MtqTestbench::new();
         testbench.send_tc(Request::Hk(HkRequestType::EnablePeriodic(Some(
             Duration::ZERO,
         ))));
@@ -765,11 +765,11 @@ mod tests {
 
     #[test]
     fn test_valid_reply_no_fault() {
-        let mut testbench = MgtTestbench::new();
+        let mut testbench = MtqTestbench::new();
         testbench
             .test_interface()
-            .push_reply(sim_mgt::Reply::Hk(sim_mgt::HkSet {
-                dipole: mgt::Dipole::default(),
+            .push_reply(sim_mtq::Reply::Hk(sim_mtq::HkSet {
+                dipole: mtq::Dipole::default(),
                 torquing: false,
             }));
         testbench.switch_to_normal();
@@ -779,43 +779,43 @@ mod tests {
 
     #[test]
     fn test_missing_reply_registers_fault() {
-        let mut testbench = MgtTestbench::new();
+        let mut testbench = MtqTestbench::new();
         testbench.switch_to_normal();
         assert_eq!(testbench.handler.fdir.fault_count(), 1);
         assert!(!testbench.handler.hk_set.valid);
         assert!(matches!(
             testbench.drain_events().as_slice(),
-            [mgt::Event::ModeChanged(DeviceMode::Normal)]
+            [mtq::Event::ModeChanged(DeviceMode::Normal)]
         ));
     }
 
     #[test]
     fn test_unexpected_reply_registers_fault() {
-        let mut testbench = MgtTestbench::new();
-        testbench.test_interface().push_reply(sim_mgt::Reply::Ack);
+        let mut testbench = MtqTestbench::new();
+        testbench.test_interface().push_reply(sim_mtq::Reply::Ack);
         testbench.switch_to_normal();
         assert_eq!(testbench.handler.fdir.fault_count(), 1);
         assert!(matches!(
             testbench.drain_events().as_slice(),
-            [mgt::Event::ModeChanged(DeviceMode::Normal)]
+            [mtq::Event::ModeChanged(DeviceMode::Normal)]
         ));
     }
 
     #[test]
     fn test_invalid_reply_registers_fault() {
-        let mut testbench = MgtTestbench::new();
+        let mut testbench = MtqTestbench::new();
         testbench.test_interface().replies.push_back(vec![0xff]);
         testbench.switch_to_normal();
         assert_eq!(testbench.handler.fdir.fault_count(), 1);
         assert!(matches!(
             testbench.drain_events().as_slice(),
-            [mgt::Event::ModeChanged(DeviceMode::Normal)]
+            [mtq::Event::ModeChanged(DeviceMode::Normal)]
         ));
     }
 
     #[test]
     fn test_reply_fault_threshold_starts_recovery() {
-        let mut testbench = MgtTestbench::new();
+        let mut testbench = MtqTestbench::new();
         testbench.switch_to_normal();
         testbench.drain_events();
         while testbench.parent_report_rx.try_recv().is_ok() {}
@@ -824,8 +824,8 @@ mod tests {
         assert!(matches!(
             testbench.drain_events().as_slice(),
             [
-                mgt::Event::ReplyFaultThresholdExceeded,
-                mgt::Event::Recovery(RecoveryEvent::Started)
+                mtq::Event::ReplyFaultThresholdExceeded,
+                mtq::Event::Recovery(RecoveryEvent::Started)
             ]
         ));
 
@@ -833,7 +833,7 @@ mod tests {
         assert_eq!(testbench.health(), Some(HealthState::Healthy));
         assert!(matches!(
             testbench.drain_events().as_slice(),
-            [mgt::Event::Recovery(RecoveryEvent::Done)]
+            [mtq::Event::Recovery(RecoveryEvent::Done)]
         ));
         // The power cycle is hidden from the parent.
         assert!(testbench.parent_report_rx.try_recv().is_err());
@@ -841,7 +841,7 @@ mod tests {
 
     #[test]
     fn test_unresponsive_device_marked_faulty() {
-        let mut testbench = MgtTestbench::new();
+        let mut testbench = MtqTestbench::new();
         testbench.switch_to_normal();
         for _ in 0..RECOVERY_THRESHOLD {
             testbench.exceed_reply_fault_threshold();
@@ -854,8 +854,8 @@ mod tests {
         assert!(matches!(
             testbench.drain_events().as_slice(),
             [
-                mgt::Event::ReplyFaultThresholdExceeded,
-                mgt::Event::Recovery(RecoveryEvent::ThresholdExceeded)
+                mtq::Event::ReplyFaultThresholdExceeded,
+                mtq::Event::Recovery(RecoveryEvent::ThresholdExceeded)
             ]
         ));
         assert_eq!(
@@ -866,7 +866,7 @@ mod tests {
 
     #[test]
     fn test_set_health() {
-        let mut testbench = MgtTestbench::new();
+        let mut testbench = MtqTestbench::new();
         testbench.send_tc(Request::Health(HealthRequest::SetHealth(
             HealthState::Faulty,
         )));

@@ -30,7 +30,7 @@ pub struct SwitchesBitfield {
 pub enum SwitchId {
     Mgm0 = 0,
     Mgm1 = 1,
-    Mgt = 2,
+    Mtq = 2,
 }
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone, serde::Serialize, serde::Deserialize)]
@@ -186,7 +186,7 @@ impl SwitchSet {
         };
         Some(
             SwitchesBitfield::builder()
-                .with_magnetorquer(is_on(SwitchId::Mgt)?)
+                .with_magnetorquer(is_on(SwitchId::Mtq)?)
                 .with_mgm1(is_on(SwitchId::Mgm1)?)
                 .with_mgm0(is_on(SwitchId::Mgm0)?)
                 .build(),
@@ -303,7 +303,7 @@ mod tests {
     #[test]
     fn test_switch_set_from_incomplete_binary_switch_map() {
         let mut switch_map = SwitchMapBinaryWrapper::default().0;
-        switch_map.remove(&SwitchId::Mgt);
+        switch_map.remove(&SwitchId::Mtq);
         assert!(SwitchSet::from_binary_switch_map(&switch_map).is_none());
     }
 }
