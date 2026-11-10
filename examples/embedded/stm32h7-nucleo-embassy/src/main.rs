@@ -106,7 +106,9 @@ async fn main(spawner: Spawner) {
     spawner.spawn(
         event_manager(CHANNELS.event_manager()).expect("spawning event manager task failed"),
     );
+    // ANCHOR: spawn_pcdu_task
     spawner.spawn(pcdu_task(pcdu_handler).expect("spawning PCDU task failed"));
+    // ANCHOR_END: spawn_pcdu_task
 }
 
 #[embassy_executor::task]
@@ -166,7 +168,9 @@ async fn event_manager(endpoints: shared_embedded::event_manager::EventManagerEn
     shared_embedded::event_manager::event_manager_task(endpoints).await
 }
 
+// ANCHOR: pcdu_task_wrapper
 #[embassy_executor::task]
 async fn pcdu_task(mut handler: shared_embedded::pcdu::PcduHandler) {
     shared_embedded::pcdu::pcdu_task(&mut handler).await
 }
+// ANCHOR_END: pcdu_task_wrapper

@@ -39,7 +39,7 @@ handler might have the following events:
 You can model these events using the following data structure, also including
 a `severity` method.
 
-```rust
+```rust,ignore
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
 pub enum Event {
     ImageTaken,
@@ -64,7 +64,7 @@ Depending on the requirements of your system, you might want to filter which
 events are packaged and sent as telemetry. This requires an identification
 system. A simple scheme would be to add something like this:
 
-```rust
+```rust,ignore
 impl Event {
     pub fn id(&self) -> u32 {
         match self {
@@ -88,7 +88,7 @@ queue system is the best solution for this. For example, on an embedded Linux
 system, you might have an event sender handle like this inside your camera
 device handler:
 
-```rust
+```rust,ignore
 pub struct CameraHandler {
     // (...)
     event_sender: std::sync::mpsc::SyncSender<Event>
