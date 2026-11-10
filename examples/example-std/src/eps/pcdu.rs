@@ -268,9 +268,7 @@ impl PcduHandler {
         {
             log::warn!("requesting PCDU switch info failed");
             self.invalidate_switch_set();
-            if let Err(e) = self.event_tx.send(pcdu::Event::SerialCommError) {
-                log::warn!("failed to send comm error event: {}", e);
-            }
+            self.send_event(pcdu::Event::SerialCommError);
             return;
         }
         self.switch_info_pending = Some(id);
@@ -286,12 +284,32 @@ impl PcduHandler {
         }
     }
 
+    /// Does not block the handler. A full event queue drops the event.
+    fn send_event(&self, event: pcdu::Event) {
+        if let Err(e) = self.event_tx.try_send(event) {
+            log::warn!("failed to send event {:?}: {}", event, e);
+        }
+    }
+
     /// The switch set is only valid while the PCDU answers.
     fn invalidate_switch_set(&self) {
         self.shared_switch_map
             .lock()
             .expect("failed to lock switch map")
             .valid = false;
+    }
+
+    /// Returns true if the switch states changed. The first valid set after an invalid one also
+    /// counts as a change, because the switch states were unknown before.
+    fn update_switch_set(&self, switch_set: SwitchSet) -> bool {
+        let mut shared_switch_set = self
+            .shared_switch_map
+            .lock()
+            .expect("failed to lock switch map");
+        let changed =
+            !shared_switch_set.valid || shared_switch_set.switch_map != switch_set.switch_map;
+        *shared_switch_set = switch_set;
+        changed
     }
 
     pub fn handle_switches_bitfield_request(
@@ -323,47 +341,15 @@ impl PcduHandler {
         }
     }
 
-    /*
-    pub fn handle_mode_requests(&mut self) {
-        loop {
-            // TODO: Only allow one set mode request per cycle?
-            match self.mode_node.try_recv_mode_request() {
-                Ok(opt_msg) => {
-                    if let Some(msg) = opt_msg {
-                        let result = self.handle_mode_request(msg);
-                        // TODO: Trigger event?
-                        if result.is_err() {
-                            log::warn!(
-                                "{}: mode request failed with error {:?}",
-                                self.dev_str,
-                                result.err().unwrap()
-                            );
-                        }
-                    } else {
-                        break;
-                    }
-                }
-                Err(e) => match e {
-                    satrs::queue::GenericReceiveError::Empty => {
-                        break;
-                    }
-                    satrs::queue::GenericReceiveError::TxDisconnected(_) => {
-                        log::warn!("{}: failed to receive mode request: {:?}", self.dev_str, e);
-                    }
-                },
-            }
-        }
-    }
-    */
-
     pub fn handle_device_switching(&mut self, switch_id: SwitchId, state: SwitchStateBinary) {
         let pcdu_req = PcduRequest::SwitchDevice {
             switch: switch_id,
             state,
         };
-        self.com
-            .send(pcdu_req)
-            .expect("failed to send switch request to PCDU");
+        if let Err(e) = self.com.send(pcdu_req) {
+            log::error!("sending switch request {:?} failed: {:?}", pcdu_req, e);
+            self.send_event(pcdu::Event::SerialCommError);
+        }
     }
 
     pub fn handle_switch_requests(&mut self) {
@@ -399,10 +385,9 @@ impl PcduHandler {
                         continue;
                     };
                     self.switch_info_pending = None;
-                    *self
-                        .shared_switch_map
-                        .lock()
-                        .expect("failed to lock switch map") = switch_set;
+                    if self.update_switch_set(switch_set) {
+                        self.send_event(pcdu::Event::SwitchStatesChanged(switches));
+                    }
                     for recipient in core::mem::take(&mut self.switch_info_recipients) {
                         match recipient {
                             SwitchInfoRecipient::Ping(tc_id) => {
@@ -704,6 +689,71 @@ mod tests {
 
         assert!(testbench.tm_rx.try_recv().is_err());
         assert!(!testbench.handler.shared_switch_map.lock().unwrap().valid);
+    }
+
+    fn run_cycle(testbench: &mut PcduTestbench) {
+        testbench.handler.periodic_operation(OpCode::RegularOp);
+        testbench
+            .handler
+            .periodic_operation(OpCode::PollAndRecvReplies);
+    }
+
+    fn expect_switch_states_event(testbench: &PcduTestbench) -> SwitchesBitfield {
+        match testbench.event_rx.try_recv() {
+            Ok(pcdu::Event::SwitchStatesChanged(switches)) => switches,
+            other => panic!("expected switch states event, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_switch_states_event_on_first_report() {
+        let mut testbench = PcduTestbench::new();
+        run_cycle(&mut testbench);
+        assert_eq!(
+            expect_switch_states_event(&testbench),
+            SwitchesBitfield::default()
+        );
+    }
+
+    #[test]
+    fn test_no_switch_states_event_without_change() {
+        let mut testbench = PcduTestbench::new();
+        run_cycle(&mut testbench);
+        expect_switch_states_event(&testbench);
+        run_cycle(&mut testbench);
+        assert!(testbench.event_rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn test_switch_states_event_on_change() {
+        let mut testbench = PcduTestbench::new();
+        run_cycle(&mut testbench);
+        expect_switch_states_event(&testbench);
+        testbench
+            .switch_request_tx
+            .send(SwitchRequest::new(SwitchId::Mgm0, SwitchStateBinary::On))
+            .unwrap();
+        run_cycle(&mut testbench);
+        let switches = expect_switch_states_event(&testbench);
+        assert!(switches.mgm0());
+        assert!(!switches.mgm1());
+        assert!(!switches.magnetorquer());
+    }
+
+    #[test]
+    fn test_switch_states_event_after_invalid_set() {
+        let mut testbench = PcduTestbench::new();
+        run_cycle(&mut testbench);
+        expect_switch_states_event(&testbench);
+        // Drop the reply, so the switch set becomes invalid.
+        testbench.handler.periodic_operation(OpCode::RegularOp);
+        testbench.test_interface().dummy.replies.clear();
+        run_cycle(&mut testbench);
+        // Unchanged switch states, but they were unknown in between.
+        assert_eq!(
+            expect_switch_states_event(&testbench),
+            SwitchesBitfield::default()
+        );
     }
 
     #[test]

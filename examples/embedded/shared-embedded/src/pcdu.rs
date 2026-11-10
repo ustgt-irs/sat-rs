@@ -11,7 +11,7 @@ use minisim_types::{
 };
 use spacepackets::CcsdsPacketIdAndPsc;
 use types::{
-    ComponentId,
+    ComponentId, EventId as _,
     ccsds::CcsdsTcPacketOwned,
     pcdu::{
         self, SwitchId, SwitchMapBinaryWrapper, SwitchRequest, SwitchSet, SwitchStateBinary,
@@ -272,14 +272,7 @@ impl PcduHandler {
         {
             defmt::warn!("requesting PCDU switch info failed");
             self.invalidate_switch_set().await;
-            // Do not block the handler, a full event queue already holds comm errors.
-            if self
-                .event_tx
-                .try_send(EventMessage::Pcdu(pcdu::Event::SerialCommError))
-                .is_err()
-            {
-                defmt::warn!("event queue full, dropping comm error event");
-            }
+            self.send_event(pcdu::Event::SerialCommError);
             return;
         }
         self.switch_info_pending = Some(id);
@@ -319,6 +312,23 @@ impl PcduHandler {
                 recipient;
             defmt::warn!("no switch info reply for TC ID {:#010x}", tc_id.raw());
         }
+    }
+
+    /// Does not block the handler. A full event queue drops the event.
+    fn send_event(&self, event: pcdu::Event) {
+        if self.event_tx.try_send(EventMessage::Pcdu(event)).is_err() {
+            defmt::warn!("event queue full, dropping PCDU event {}", event.event_id());
+        }
+    }
+
+    /// Returns true if the switch states changed. The first valid set after an invalid one also
+    /// counts as a change, because the switch states were unknown before.
+    async fn update_switch_set(&self, switch_set: SwitchSet) -> bool {
+        let mut shared_switch_set = self.shared_switch_map.lock().await;
+        let changed =
+            !shared_switch_set.valid || shared_switch_set.switch_map != switch_set.switch_map;
+        *shared_switch_set = switch_set;
+        changed
     }
 
     /// The switch set is only valid while the PCDU answers.
@@ -364,13 +374,7 @@ impl PcduHandler {
         };
         if self.com.send(pcdu_req).is_err() {
             defmt::warn!("sending switch request to PCDU failed");
-            if self
-                .event_tx
-                .try_send(EventMessage::Pcdu(pcdu::Event::SerialCommError))
-                .is_err()
-            {
-                defmt::warn!("event queue full, dropping comm error event");
-            }
+            self.send_event(pcdu::Event::SerialCommError);
         }
     }
 
@@ -396,7 +400,9 @@ impl PcduHandler {
                         continue;
                     };
                     self.switch_info_pending = None;
-                    *self.shared_switch_map.lock().await = switch_set;
+                    if self.update_switch_set(switch_set).await {
+                        self.send_event(pcdu::Event::SwitchStatesChanged(switches));
+                    }
                     for recipient in core::mem::take(&mut self.switch_info_recipients) {
                         match recipient {
                             SwitchInfoRecipient::Ping(tc_id) => {

@@ -1,7 +1,7 @@
 use strum::{EnumCount as _, IntoEnumIterator as _};
 
 #[bitbybit::bitfield(u16, debug, default = 0x0, defmt_bitfields(feature = "defmt"))]
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct SwitchesBitfield {
     #[bit(2, rw)]
     magnetorquer: bool,
@@ -9,14 +9,6 @@ pub struct SwitchesBitfield {
     mgm1: bool,
     #[bit(0, rw)]
     mgm0: bool,
-}
-
-#[derive(
-    Debug, Copy, Clone, PartialEq, Eq, num_enum::TryFromPrimitive, num_enum::IntoPrimitive,
-)]
-#[repr(u32)]
-pub enum SetId {
-    SwitcherSet = 0,
 }
 
 #[derive(
@@ -71,6 +63,8 @@ pub enum SwitchStateBinary {
 pub enum Event {
     /// Sending a request to the PCDU over the serial/simulator link failed.
     SerialCommError,
+    /// Contains all switches, so a lost event is corrected by the next one.
+    SwitchStatesChanged(SwitchesBitfield),
 }
 
 impl crate::Message for Event {
