@@ -274,8 +274,8 @@ mod tests {
         // Call the connection handler in separate thread, does block.
         thread::spawn(move || {
             let result = tcp_server.handle_all_connections(Some(Duration::from_millis(100)));
-            if result.is_err() {
-                panic!("handling connection failed: {:?}", result.unwrap_err());
+            if let Err(e) = result {
+                panic!("handling connection failed: {e:?}");
             }
             let result = result.unwrap();
             assert_eq!(result, ConnectionResult::HandledConnections(1));
@@ -330,8 +330,8 @@ mod tests {
         // Call the connection handler in separate thread, does block.
         thread::spawn(move || {
             let result = tcp_server.handle_all_connections(Some(Duration::from_millis(100)));
-            if result.is_err() {
-                panic!("handling connection failed: {:?}", result.unwrap_err());
+            if let Err(e) = result {
+                panic!("handling connection failed: {e:?}");
             }
             let result = result.unwrap();
             assert_eq!(result, ConnectionResult::HandledConnections(1));
@@ -437,8 +437,8 @@ mod tests {
         let thread_jh = thread::spawn(move || {
             loop {
                 let result = tcp_server.handle_all_connections(Some(Duration::from_millis(20)));
-                if result.is_err() {
-                    panic!("handling connection failed: {:?}", result.unwrap_err());
+                if let Err(e) = result {
+                    panic!("handling connection failed: {e:?}");
                 }
                 let result = result.unwrap();
                 if result == ConnectionResult::AcceptTimeout {
@@ -473,8 +473,8 @@ mod tests {
         let thread_jh = thread::spawn(move || {
             loop {
                 let result = tcp_server.handle_all_connections(Some(Duration::from_millis(20)));
-                if result.is_err() {
-                    panic!("handling connection failed: {:?}", result.unwrap_err());
+                if let Err(e) = result {
+                    panic!("handling connection failed: {e:?}");
                 }
                 let result = result.unwrap();
                 if result == ConnectionResult::AcceptTimeout {

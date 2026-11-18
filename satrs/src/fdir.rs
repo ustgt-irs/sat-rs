@@ -319,14 +319,13 @@ impl<HealthTable: HealthTableProvider> RecoveryFdir<HealthTable> {
 
     /// Should be called when a fault counter of the component exceeded its threshold.
     pub fn handle_fault(&mut self) -> FaultResponse {
-        // Ground may have taken manual control, or already given up on this component.
-        // Autonomous FDIR should not override that decision. An already faulty or recovering
+        // Ground may have taken manual control of this component. Autonomous FDIR should not
+        // override that decision. An already faulty or recovering
         // component must not be escalated again. For example, this would allow a faulty component
         // to become healthy again, because the recovery counter was reset when it became faulty.
         if matches!(
             self.health(),
             Some(HealthState::ExternalControl)
-                | Some(HealthState::PermanentFaulty)
                 | Some(HealthState::Faulty)
                 | Some(HealthState::NeedsRecovery)
         ) {
@@ -479,7 +478,6 @@ mod tests {
         let mut fdir = recovery_fdir();
         for health in [
             HealthState::ExternalControl,
-            HealthState::PermanentFaulty,
             HealthState::Faulty,
             HealthState::NeedsRecovery,
         ] {

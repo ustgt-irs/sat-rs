@@ -2,8 +2,14 @@ figure {
     margin: 1.5em 0;
 }
 
+figure img {
+    display: block;
+    margin: 0 auto;
+}
+
 figcaption {
-    text-align: center;
+    margin-top: 1em;
+    text-align: justify;
     font-style: italic;
     font-size: 0.9em;
 }

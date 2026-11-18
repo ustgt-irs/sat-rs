@@ -359,18 +359,20 @@ pub mod heapless_mod {
     #[macro_export]
     macro_rules! static_subpool {
         ($pool_name: ident, $sizes_list_name: ident, $num_blocks: expr, $block_size: expr) => {
-            static $pool_name: static_cell::ConstStaticCell<[u8; $num_blocks * $block_size]> =
-                static_cell::ConstStaticCell::new([0; $num_blocks * $block_size]);
-            static $sizes_list_name: static_cell::ConstStaticCell<[usize; $num_blocks]> =
-                static_cell::ConstStaticCell::new([$crate::pool::STORE_FREE; $num_blocks]);
+            static $pool_name: $crate::static_cell::ConstStaticCell<
+                [u8; $num_blocks * $block_size],
+            > = $crate::static_cell::ConstStaticCell::new([0; $num_blocks * $block_size]);
+            static $sizes_list_name: $crate::static_cell::ConstStaticCell<[usize; $num_blocks]> =
+                $crate::static_cell::ConstStaticCell::new([$crate::pool::STORE_FREE; $num_blocks]);
         };
         ($pool_name: ident, $sizes_list_name: ident, $num_blocks: expr, $block_size: expr, $meta_data: meta) => {
             #[$meta_data]
-            static $pool_name: static_cell::ConstStaticCell<[u8; $num_blocks * $block_size]> =
-                static_cell::ConstStaticCell::new([0; $num_blocks * $block_size]);
+            static $pool_name: $crate::static_cell::ConstStaticCell<
+                [u8; $num_blocks * $block_size],
+            > = $crate::static_cell::ConstStaticCell::new([0; $num_blocks * $block_size]);
             #[$meta_data]
-            static $sizes_list_name: static_cell::ConstStaticCell<[usize; $num_blocks]> =
-                static_cell::ConstStaticCell::new([$crate::pool::STORE_FREE; $num_blocks]);
+            static $sizes_list_name: $crate::static_cell::ConstStaticCell<[usize; $num_blocks]> =
+                $crate::static_cell::ConstStaticCell::new([$crate::pool::STORE_FREE; $num_blocks]);
         };
     }
 
@@ -699,10 +701,7 @@ pub mod heapless_mod {
             let pool_idx = addr.pool_idx as usize;
             let size_list = self.sizes_lists.get(pool_idx).unwrap();
             let curr_size = size_list[addr.packet_idx as usize];
-            if curr_size == STORE_FREE {
-                return Ok(false);
-            }
-            Ok(true)
+            Ok(curr_size != STORE_FREE)
         }
 
         fn len_of_data(&self, addr: &PoolAddr) -> Result<usize, PoolError> {
@@ -1017,10 +1016,7 @@ mod alloc_mod {
             let pool_idx = addr.pool_idx as usize;
             let size_list = self.sizes_lists.get(pool_idx).unwrap();
             let curr_size = size_list[addr.packet_idx as usize];
-            if curr_size == STORE_FREE {
-                return Ok(false);
-            }
-            Ok(true)
+            Ok(curr_size != STORE_FREE)
         }
 
         fn len_of_data(&self, addr: &PoolAddr) -> Result<usize, PoolError> {
