@@ -35,6 +35,9 @@ pub mod time;
 pub mod tmtc;
 
 pub use spacepackets;
+// Used by the exported pool macros, so users do not need their own static_cell dependency.
+#[doc(hidden)]
+pub use static_cell;
 
 use spacepackets::PacketId;
 

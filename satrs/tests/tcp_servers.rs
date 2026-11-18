@@ -138,8 +138,8 @@ fn test_cobs_server() {
     // Call the connection handler in separate thread, does block.
     thread::spawn(move || {
         let result = tcp_server.handle_all_connections(Some(Duration::from_millis(400)));
-        if result.is_err() {
-            panic!("handling connection failed: {:?}", result.unwrap_err());
+        if let Err(e) = result {
+            panic!("handling connection failed: {e:?}");
         }
         let conn_result = result.unwrap();
         assert_eq!(conn_result, ConnectionResult::HandledConnections(1));
@@ -250,8 +250,8 @@ fn test_ccsds_server() {
     // Call the connection handler in separate thread, does block.
     thread::spawn(move || {
         let result = tcp_server.handle_all_connections(Some(Duration::from_millis(500)));
-        if result.is_err() {
-            panic!("handling connection failed: {:?}", result.unwrap_err());
+        if let Err(e) = result {
+            panic!("handling connection failed: {e:?}");
         }
         let conn_result = result.unwrap();
         assert_eq!(conn_result, ConnectionResult::HandledConnections(1));

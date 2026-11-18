@@ -5,7 +5,6 @@ use crate::ComponentId;
 pub enum HealthState {
     Healthy = 1,
     Faulty = 2,
-    PermanentFaulty = 3,
     ExternalControl = 4,
     NeedsRecovery = 5,
 }

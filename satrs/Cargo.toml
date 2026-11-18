@@ -15,7 +15,6 @@ spacepackets = { version = "0.19", default-features = false }
 
 delegate = "0.13"
 paste = "1"
-derive-new = "0.7"
 num_enum = { version = "0.7", default-features = false }
 cobs = { version = "0.5", default-features = false }
 thiserror = { version = "2", default-features = false }

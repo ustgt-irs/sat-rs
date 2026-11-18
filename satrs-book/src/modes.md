@@ -73,27 +73,3 @@ In summary, a component which has modes has to expose the following 4 capabiliti
 3. Announce the mode
 4. Announce the mode recursively
 
-# Health
-
-Health is an important concept for systems and components which might fail.
-Oftentimes, the health is tied to the mode of a system component in some shape or form, and
-determines whether a system component is usable. Health is also an extremely useful concept
-to simplify the Fault Detection, Isolation and Recovery (FDIR) concept of a system.
-
-The following health states are based on the ones used inside the FSFW and are enough to model most
-use-cases:
-
-- `HEALTHY`
-- `FAULTY`
-- `NEEDS RECOVERY`
-- `EXTERNAL CONTROL`
-
-1. `HEALTHY` means that a component is working nominally, and can perform its task without any issues.
-2. `FAULTY` means that a component does not work properly. This might also impact other system
-components, so the passivation and isolation of that component is desirable for FDIR purposes.
-3. `NEEDS RECOVERY` is used to attempt a recovery of a component. For example, a simple sensor
-could be power-cycled if there were multiple communication issues recently.
-4. `EXTERNAL CONTROL` is used to isolate an individual component from the rest of the system. For
-   example, an operator might be interested in testing a component in isolation, and the interference
-   of the system is not desired. In that case, the `EXTERNAL CONTROL` health state might be used
-   to prevent mode commands from the system while allowing external mode commands.

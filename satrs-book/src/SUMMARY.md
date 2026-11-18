@@ -9,7 +9,8 @@
 - [Task and Object Scheduling](./task-obj-scheduling.md)
 - [Working with Constrained Systems](./constrained-systems.md)
 - [Actions](./actions.md)
-- [Modes and Health](./modes-and-health.md)
+- [Modes](./modes.md)
+- [FDIR](./fdir.md)
 - [Housekeeping Data](./housekeeping.md)
 - [Events](./events.md)
 

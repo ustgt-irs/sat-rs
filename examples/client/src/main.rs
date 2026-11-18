@@ -181,7 +181,6 @@ enum HkSelect {
 enum HealthStateSelect {
     Healthy,
     Faulty,
-    PermanentFaulty,
     ExternalControl,
     NeedsRecovery,
 }
@@ -191,7 +190,6 @@ impl From<HealthStateSelect> for satrs::health::HealthState {
         match state {
             HealthStateSelect::Healthy => satrs::health::HealthState::Healthy,
             HealthStateSelect::Faulty => satrs::health::HealthState::Faulty,
-            HealthStateSelect::PermanentFaulty => satrs::health::HealthState::PermanentFaulty,
             HealthStateSelect::ExternalControl => satrs::health::HealthState::ExternalControl,
             HealthStateSelect::NeedsRecovery => satrs::health::HealthState::NeedsRecovery,
         }

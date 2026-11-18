@@ -46,6 +46,11 @@ docs-satrs:
 
 docs: docs-satrs
 
+# Exports all typst diagrams of the book to SVG files next to their sources.
+[working-directory:"satrs-book/src/images"]
+book-diagrams:
+  for f in $(find . -name '*.typ'); do typst compile "$f" "${f%.typ}.svg"; done
+
 [working-directory:"satrs-book"]
 book *args:
   mdbook build {{args}}

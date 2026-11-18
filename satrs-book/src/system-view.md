@@ -27,7 +27,7 @@ The book has dedicated chapters for some of the topics:
 
 - [Packet Format and TMTC Modelling](./tmtc-modelling.md)
 - [Events](./events.md)
-- [Modes](./modes-and-health.md)
+- [Modes](./modes.md)
 
 ## Embedded Linux
 
