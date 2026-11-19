@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - Added `fdir::RecoveryEvent` for recovery related events.
 - Bumped `spacepackets` to v0.19
 - Bumped MSRV to 1.88, required by `spacepackets` v0.19
+- Removed the `executable` and `scheduling` modules and the `bus` dependency. Plain thread
+  loops are simpler, see the task scheduling chapter of the book.
 
 # [v0.3.0-alpha.3] 2025-11-06
 

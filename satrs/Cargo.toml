@@ -24,7 +24,6 @@ static_cell = { version = "2" }
 heapless = { version = "0.9", optional = true }
 dyn-clone = { version = "1", optional = true }
 downcast-rs = { version = "2", default-features = false, optional = true }
-bus = { version = "2.2", optional = true }
 crossbeam-channel = { version = "0.5", default-features = false, optional = true }
 postcard = { version = "1", features = ["alloc"] }
 serde = { version = "1", default-features = false, optional = true }
@@ -50,8 +49,7 @@ default = ["std", "heapless"]
 std = [
     "downcast-rs/std",
     "alloc",
-    "bus",
-    "crossbeam-channel/std",
+    "crossbeam-channel?/std",
     "serde/std",
     "spacepackets/std",
     "num_enum/std",
