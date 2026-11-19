@@ -54,6 +54,9 @@ docs-satrs:
 
 docs: docs-satrs
 
+docs-html:
+  RUSTDOCFLAGS="--cfg docsrs --generate-link-to-definition -Z unstable-options" cargo +nightly doc -p satrs --all-features --open
+
 # Exports all typst diagrams of the book to SVG files next to their sources.
 [working-directory:"satrs-book/src/images"]
 book-diagrams:
