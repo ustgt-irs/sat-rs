@@ -2,13 +2,11 @@
 resolver = "2"
 members = [
     "satrs",
-    "satrs-mib",
     "examples/example-std",
     "examples/types",
     "examples/client",
     "examples/minisim",
     "examples/minisim-types",
-    "satrs-shared",
     "tmtc-utils",
 ]
 
