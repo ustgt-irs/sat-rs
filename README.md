@@ -34,8 +34,6 @@ This project currently contains the following crates:
    this first before delving into the example application and the API documentation.
 * [`satrs`](https://github.com/ustgt-irs/sat-rs/tree/main/satrs):
    Primary crate.
-* [`satrs-mib`](https://github.com/ustgt-irs/sat-rs/tree/main/satrs-mib):
-   Components to build a mission information base from the on-board software directly.
 
 ## Examples
 
