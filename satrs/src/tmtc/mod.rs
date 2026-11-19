@@ -12,7 +12,7 @@ use crate::{
     ComponentId,
     pool::{PoolAddr, PoolError},
 };
-#[cfg(feature = "std")]
+#[cfg(feature = "alloc")]
 pub use alloc_mod::*;
 use core::fmt::Debug;
 #[cfg(feature = "alloc")]

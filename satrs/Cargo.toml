@@ -25,7 +25,7 @@ heapless = { version = "0.9", optional = true }
 dyn-clone = { version = "1", optional = true }
 downcast-rs = { version = "2", default-features = false, optional = true }
 crossbeam-channel = { version = "0.5", default-features = false, optional = true }
-postcard = { version = "1", features = ["alloc"] }
+postcard = { version = "1", optional = true }
 serde = { version = "1", default-features = false, optional = true }
 socket2 = { version = "0.6", features = ["all"], optional = true }
 arbitrary-int = "2"
@@ -49,6 +49,7 @@ default = ["std", "heapless"]
 std = [
     "downcast-rs/std",
     "alloc",
+    "heapless",
     "crossbeam-channel?/std",
     "serde/std",
     "spacepackets/std",
@@ -60,16 +61,17 @@ std = [
 alloc = [
     "serde/alloc",
     "cobs/alloc",
+    "postcard?/alloc",
     "spacepackets/alloc",
     "hashbrown",
     "dyn-clone",
     "downcast-rs"
 ]
-serde = ["dep:serde", "spacepackets/serde"]
-crossbeam = ["crossbeam-channel"]
+serde = ["dep:serde", "dep:postcard", "spacepackets/serde"]
+crossbeam = ["std", "crossbeam-channel"]
 defmt = ["dep:defmt", "spacepackets/defmt", "embassy-time?/defmt"]
 embassy-time = ["dep:embassy-time"]
-test_util = []
+test_util = ["std"]
 
 [package.metadata.docs.rs]
 all-features = true
