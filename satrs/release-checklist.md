@@ -3,7 +3,7 @@ Checklist for new releases
 
 # Pre-Release
 
-1. Make sure any new modules are documented sufficiently enough and check docs by running `docs.sh`.
+1. Make sure any new modules are documented sufficiently enough and check docs by running `just docs-html`.
 2. Bump version specifier in `Cargo.toml`.
 3. Update `CHANGELOG.md`: Convert `unreleased` section into version section with date and add new
    `unreleased` section.

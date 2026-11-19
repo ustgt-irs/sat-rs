@@ -1,8 +1,0 @@
-[package]
-name = "satrs-gen"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]
-toml = "1"
-heck = "0.5"
