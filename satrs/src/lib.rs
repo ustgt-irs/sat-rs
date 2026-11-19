@@ -13,8 +13,6 @@ extern crate std;
 
 pub mod ccsds;
 pub mod encoding;
-#[cfg(feature = "std")]
-pub mod executable;
 pub mod fdir;
 pub mod hal;
 pub mod health;
@@ -27,8 +25,6 @@ pub mod params;
 pub mod pool;
 pub mod queue;
 pub mod request;
-#[cfg(feature = "alloc")]
-pub mod scheduling;
 #[cfg(feature = "alloc")]
 pub mod subsystem;
 pub mod time;

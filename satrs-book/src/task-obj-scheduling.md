@@ -96,6 +96,10 @@ This is an excerpt from the `std` example code for object group 2:
 {{#include ../../examples/example-std/src/main.rs:aocs_thread}}
 ```
 
+The `checked_wait_for_aocs_slot` helper returns the planned slot start instead of the time when
+the sleep ended. Using it as the reference for the next slot keeps the cycle from drifting. Only
+when a slot starts late does the helper return the current time, so the schedule resynchronizes.
+
 The join handle (`jh_*`) and the `KILL_SIGNAL` are components used for a graceful shutdown or
 reboot of the software and the system.
 
