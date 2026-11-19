@@ -4,6 +4,14 @@ check:
   cargo check
   cargo check -p example-std --no-default-features
 
+# Pairs of features catch the same gating bugs as the full powerset, with far fewer builds.
+check-features:
+  cargo hack check -p satrs --feature-powerset --depth 2
+
+# Uses the MSRV from Cargo.toml.
+msrv:
+  cargo hack check -p satrs --rust-version --feature-powerset --depth 2
+
 build:
   cargo build
 

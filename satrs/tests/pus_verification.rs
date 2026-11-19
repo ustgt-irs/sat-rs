@@ -1,4 +1,4 @@
-#[cfg(feature = "crossbeam")]
+#[cfg(all(feature = "crossbeam", feature = "test_util"))]
 pub mod crossbeam_test {
     use arbitrary_int::traits::Integer as _;
     use arbitrary_int::u14;

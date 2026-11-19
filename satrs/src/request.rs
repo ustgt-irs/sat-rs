@@ -209,7 +209,6 @@ pub trait MessageSenderStoreProvider<Message, Sender>: Default {
 #[cfg(feature = "alloc")]
 pub mod alloc_mod {
     use crate::queue::GenericSendError;
-    use std::convert::From;
 
     use super::*;
     use hashbrown::HashMap;

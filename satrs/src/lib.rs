@@ -25,10 +25,15 @@ pub mod params;
 pub mod pool;
 pub mod queue;
 pub mod request;
-#[cfg(feature = "alloc")]
+#[cfg(feature = "std")]
 pub mod subsystem;
 pub mod time;
 pub mod tmtc;
+
+// Only the serde helpers of the alloc and heapless event types use postcard. Cargo features
+// cannot express that condition, so this silences the unused dependency lint.
+#[cfg(all(feature = "serde", not(any(feature = "alloc", feature = "heapless"))))]
+use postcard as _;
 
 pub use spacepackets;
 // Used by the exported pool macros, so users do not need their own static_cell dependency.

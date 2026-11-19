@@ -314,31 +314,7 @@ pub mod alloc_mod {
     use alloc::vec::Vec;
     use hashbrown::HashMap;
 
-    use crate::legacy::events::EventErasedAlloc;
-
     use super::*;
-
-    /// Helper type which constrains the sender map and listener map generics to the [DefaultSenderMap]
-    /// and the [DefaultListenerMap]. It uses regular mpsc channels as the message queue backend.
-    pub type EventManagerWithMpsc<EventInstance = EventErasedAlloc> = EventManager<
-        EventDynParamReceiverMpsc,
-        DefaultSenderMap<EventSenderMpsc<EventInstance>, EventInstance>,
-        DefaultListenerMap,
-        EventSenderMpsc<EventInstance>,
-        EventInstance,
-    >;
-
-    /// Helper type which constrains the sender map and listener map generics to the [DefaultSenderMap]
-    /// and the [DefaultListenerMap]. It uses
-    /// [bounded mpsc senders](https://doc.rust-lang.org/std/sync/mpsc/struct.SyncSender.html) as the
-    /// message queue backend.
-    pub type EventManagerWithBoundedMpsc<EventInstance = EventErasedAlloc> = EventManager<
-        EventDynParamReceiverMpsc,
-        DefaultSenderMap<EventSenderMpscBounded<EventInstance>, EventInstance>,
-        DefaultListenerMap,
-        EventSenderMpscBounded<EventInstance>,
-        EventInstance,
-    >;
 
     impl<
         EventReceiverInstance: EventReceiver<EventInstance>,
@@ -463,6 +439,28 @@ pub mod std_mod {
 
     use super::*;
     use std::sync::mpsc;
+
+    /// Helper type which constrains the sender map and listener map generics to the [DefaultSenderMap]
+    /// and the [DefaultListenerMap]. It uses regular mpsc channels as the message queue backend.
+    pub type EventManagerWithMpsc<EventInstance = EventErasedAlloc> = EventManager<
+        EventDynParamReceiverMpsc,
+        DefaultSenderMap<EventSenderMpsc<EventInstance>, EventInstance>,
+        DefaultListenerMap,
+        EventSenderMpsc<EventInstance>,
+        EventInstance,
+    >;
+
+    /// Helper type which constrains the sender map and listener map generics to the [DefaultSenderMap]
+    /// and the [DefaultListenerMap]. It uses
+    /// [bounded mpsc senders](https://doc.rust-lang.org/std/sync/mpsc/struct.SyncSender.html) as the
+    /// message queue backend.
+    pub type EventManagerWithBoundedMpsc<EventInstance = EventErasedAlloc> = EventManager<
+        EventDynParamReceiverMpsc,
+        DefaultSenderMap<EventSenderMpscBounded<EventInstance>, EventInstance>,
+        DefaultListenerMap,
+        EventSenderMpscBounded<EventInstance>,
+        EventInstance,
+    >;
 
     impl<EventInstance: Event + Send> EventReceiver<EventInstance>
         for mpsc::Receiver<EventMessage<EventInstance>>

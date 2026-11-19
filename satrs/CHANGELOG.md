@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](http://semver.org/).
 - Bumped MSRV to 1.88, required by `spacepackets` v0.19
 - Removed the `executable` and `scheduling` modules and the `bus` dependency. Plain thread
   loops are simpler, see the task scheduling chapter of the book.
+- Fixed builds for feature combinations other than the defaults:
+  - `std` enables `heapless`, `crossbeam` and `test_util` enable `std`.
+  - `subsystem`, `EventManagerWithMpsc` and `EventManagerWithBoundedMpsc` require `std`.
+  - `postcard` is only pulled in by the `serde` feature.
 
 # [v0.3.0-alpha.3] 2025-11-06
 
