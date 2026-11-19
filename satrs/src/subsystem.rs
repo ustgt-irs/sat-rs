@@ -565,16 +565,17 @@ impl SubsystemCommandingHelper {
             if !entry.monitor_state {
                 continue;
             }
-            let target_mode_violated = false;
-            self.children_mode_store.0.iter().for_each(|val| {
-                if val.id() == entry.common.target_id {
-                    if let Some(ignored_bits) = entry.ignored_bits {
-                        let mode_for_check = val.mode & !ignored_bits;
-                        let entry_mode_for_check = entry.common.mode & !ignored_bits;
-                        mode_for_check != entry_mode_for_check
-                    } else {
-                        val.mode != entry.common.mode
-                    };
+            let target_mode_violated = self.children_mode_store.0.iter().any(|val| {
+                if val.id() != entry.common.target_id {
+                    return false;
+                }
+
+                if let Some(ignored_bits) = entry.ignored_bits {
+                    let mode_for_check = val.mode & !ignored_bits;
+                    let entry_mode_for_check = entry.common.mode & !ignored_bits;
+                    mode_for_check != entry_mode_for_check
+                } else {
+                    val.mode != entry.common.mode
                 }
             });
             if target_mode_violated {
@@ -656,7 +657,8 @@ mod tests {
         ComponentId,
         mode_tree::{
             ModeStoreProvider, ModeStoreVec, SequenceModeTables, SequenceTableEntry,
-            SequenceTableMapTable, SequenceTablesMapValue, TargetModeTables,
+            SequenceTableMapTable, SequenceTablesMapValue, TargetModeTables, TargetTableEntry,
+            TargetTablesMapValue,
         },
         subsystem::{ModeCommandingResult, SequenceExecutionHelperState},
     };
@@ -1234,6 +1236,45 @@ mod tests {
         );
         assert_eq!(tb.helper.state(), ModeTreeHelperState::TargetKeeping);
         assert_eq!(tb.helper.mode(), ExampleMode::Mode0 as ModeRaw);
+    }
+
+    #[test]
+    fn test_subsystem_helper_target_keeping_violation() {
+        let mut tb = SubsystemHelperTestbench::new();
+
+        let mut target_table = TargetTablesMapValue::new("MODE_0", None);
+        target_table.add_entry(TargetTableEntry::new(
+            "TARGET_0",
+            ExampleTargetId::Target0 as ComponentId,
+            SUBSYSTEM_MD0_TGT0_MODE,
+        ));
+        tb.helper
+            .target_tables
+            .0
+            .insert(ExampleMode::Mode0 as ModeRaw, target_table);
+
+        tb.start_command_sequence(ExampleMode::Mode0).unwrap();
+
+        assert_eq!(
+            tb.state_machine(None).unwrap(),
+            SubsystemHelperResult::ModeCommanding(ModeCommandingResult::Done)
+        );
+
+        assert_eq!(tb.helper.state(), ModeTreeHelperState::TargetKeeping);
+
+        tb.helper
+            .update_child_mode(
+                ExampleTargetId::Target0 as ComponentId,
+                SUBSYSTEM_MD0_TGT0_MODE + 1,
+            )
+            .unwrap();
+
+        let result = tb.state_machine(None);
+
+        assert!(matches!(
+            result,
+            Err(ModeTreeHelperError::TargetKeepingViolation { .. })
+        ));
     }
 
     #[test]
