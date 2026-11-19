@@ -138,8 +138,6 @@ impl SequenceExecutionHelper {
         children_mode_store: &mut impl ModeStoreProvider,
         mode_request_handler: F,
     ) -> Result<ModeCommandingResult, InvalidSequenceIndexError> {
-        // TODO: Check whether sequence table length is larger than 255. Improbable, but let's
-        // solve this cleanly.
         if self.state == SequenceExecutionHelperState::Idle {
             return Ok(ModeCommandingResult::Done);
         }
@@ -166,8 +164,10 @@ impl SequenceExecutionHelper {
                 let sequence = sequence_table_provider
                     .sequence_at_index(sequence_index)
                     .unwrap();
-                current_info.number_of_sequences =
-                    sequence_table_provider.number_of_sequences() as u8;
+                current_info.number_of_sequences = sequence_table_provider
+                    .number_of_sequences()
+                    .try_into()
+                    .map_err(|_| InvalidSequenceIndexError)?;
                 // Find the first sequence
                 if sequence.is_empty() {
                     Ok(ModeCommandingResult::Done)
@@ -675,6 +675,25 @@ mod tests {
         Mode2 = 3,
     }
 
+    struct SequenceCountTestProvider {
+        sequence: Vec<SequenceTableEntry>,
+        number_of_sequences: usize,
+    }
+
+    impl SequenceTableProvider for SequenceCountTestProvider {
+        fn sequence_at_index(&self, index: u8) -> Option<&[SequenceTableEntry]> {
+            if index == 0 {
+                Some(&self.sequence)
+            } else {
+                None
+            }
+        }
+
+        fn number_of_sequences(&self) -> usize {
+            self.number_of_sequences
+        }
+    }
+
     pub struct SequenceExecutorTestbench {
         pub mode_store: ModeStoreVec,
         pub seq_tables: SequenceModeTables,
@@ -928,6 +947,60 @@ mod tests {
         assert!(!execution_helper.awaiting_success_check());
         assert!(execution_helper.target_mode().is_none());
         assert!(execution_helper.current_sequence_index().is_none());
+    }
+
+    #[test]
+    fn test_sequence_execution_helper_rejects_excessive_sequence_count() {
+        let (seq_tables, _) = create_simple_sample_seq_tables();
+
+        let provider = SequenceCountTestProvider {
+            sequence: alloc::vec![SequenceTableEntry::new(
+                "TEST",
+                ExampleTargetId::Target0 as ComponentId,
+                0,
+                false,
+            )],
+            number_of_sequences: 256,
+        };
+
+        let mut execution_helper = SequenceExecutionHelper::new();
+        execution_helper
+            .load(ExampleMode::Mode0 as ModeRaw, &seq_tables)
+            .unwrap();
+
+        let mut children_mode_store = ModeStoreVec::default();
+
+        let result = execution_helper.run(&provider, &mut children_mode_store, |_| {});
+
+        assert!(matches!(result, Err(InvalidSequenceIndexError)));
+    }
+
+    #[test]
+    fn test_sequence_execution_helper_accepts_max_sequence_count() {
+        let (seq_tables, _) = create_simple_sample_seq_tables();
+
+        let provider = SequenceCountTestProvider {
+            sequence: alloc::vec![SequenceTableEntry::new(
+                "TEST",
+                ExampleTargetId::Target0 as ComponentId,
+                0,
+                false,
+            )],
+            number_of_sequences: u8::MAX as usize,
+        };
+
+        let mut execution_helper = SequenceExecutionHelper::new();
+        execution_helper
+            .load(ExampleMode::Mode0 as ModeRaw, &seq_tables)
+            .unwrap();
+
+        let mut children_mode_store = ModeStoreVec::default();
+
+        assert!(
+            execution_helper
+                .run(&provider, &mut children_mode_store, |_| {})
+                .is_ok()
+        );
     }
 
     #[test]
